@@ -21,7 +21,7 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     @MainActor public private(set) var connectedPeerCount = 0
 
     private let peerID: MCPeerID
-    private let mcSession: MCSession
+    @MainActor private var clientSessions: [MCPeerID: MCSession] = [:]
     private let advertiser: MCNearbyServiceAdvertiser
     @MainActor private var playerIDsByPeer: [MCPeerID: UUID] = [:]
     /// Findings collected as each player picks their room this round, held
@@ -41,18 +41,8 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     public init(displayName: String = "Phoenix Academy", session: GameSession = GameSession()) {
         self.session = session
         self.peerID = MCPeerID(displayName: displayName)
-        // `.none`: this game exchanges no sensitive data (nicknames, avatar
-        // picks, lobby state), so there's nothing worth encrypting — and on
-        // real Wi-Fi networks `.optional` has been observed to let the
-        // session *connect* successfully while the encrypted `.reliable`
-        // data channel on top never actually stabilizes, so every
-        // application message silently fails to send even though the
-        // underlying MCSession reports `.connected`. `.none` skips that
-        // negotiation entirely.
-        self.mcSession = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .none)
         self.advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: nil, serviceType: PeerService.type)
         super.init()
-        mcSession.delegate = self
         advertiser.delegate = self
     }
 
@@ -76,9 +66,13 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// for an explicit, intentional teardown — see `pauseAdvertising()` for
     /// the much more common "briefly backgrounded" case, which must **not**
     /// drop live players.
+    @MainActor
     public func stop() {
         advertiser.stopAdvertisingPeer()
-        mcSession.disconnect()
+        for session in clientSessions.values {
+            session.disconnect()
+        }
+        clientSessions.removeAll()
     }
 
     /// Stops advertising (so no new "ghost" host lingers) without touching
@@ -325,8 +319,12 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
         )
     }
 
+    @MainActor
     private func broadcast(_ message: GameMessage) {
-        send(message, to: mcSession.connectedPeers)
+        let peers = clientSessions.compactMap { (peer, session) -> MCPeerID? in
+            session.connectedPeers.contains(peer) ? peer : nil
+        }
+        send(message, to: peers)
     }
 
     /// Sends a message to a single player only, e.g. their private
@@ -342,24 +340,27 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// sends do occasionally fail on real networks — surfacing that (even
     /// just to the console) makes flaky connections debuggable instead of
     /// looking like a message that was simply never sent.
+    @MainActor
     @discardableResult
     private func send(_ message: GameMessage, to peers: [MCPeerID]) -> Bool {
         guard !peers.isEmpty else { return false }
-        // Unambiguous diagnostic if a peer we're about to reply to (e.g. a
-        // `.joinResult` for a `.requestToJoin`) has already dropped out of
-        // the session — the send below will throw, but this pinpoints
-        // *which* peer and *when*, rather than leaving it to be inferred
-        // from the thrown error alone.
-        let stalePeers = peers.filter { !mcSession.connectedPeers.contains($0) }
-        if !stalePeers.isEmpty {
-            print("HostConnectivityService: sending \(message) to peer(s) no longer in connectedPeers: \(stalePeers.map(\.displayName))")
-        }
+        var overallSuccess = true
         do {
             let data = try message.encoded()
-            try mcSession.send(data, toPeers: peers, with: .reliable)
-            return true
+            for peer in peers {
+                guard let session = clientSessions[peer] else { continue }
+                if !session.connectedPeers.contains(peer) {
+                    print("HostConnectivityService: sending \(message) to peer no longer in connectedPeers: \(peer.displayName)")
+                }
+                do {
+                    try session.send(data, toPeers: [peer], with: .reliable)
+                } catch {
+                    print("HostConnectivityService: failed to send \(message) to \(peer.displayName): \(error)")
+                    overallSuccess = false
+                }
+            }
+            return overallSuccess
         } catch {
-            print("HostConnectivityService: failed to send \(message) to \(peers.map(\.displayName)): \(error)")
             return false
         }
     }
@@ -368,10 +369,15 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
 extension HostConnectivityService: MCSessionDelegate {
     public nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor in
-            self.connectedPeerCount = session.connectedPeers.count
             if state == .notConnected {
+                self.clientSessions.removeValue(forKey: peerID)
                 self.handleDisconnect(of: peerID)
             }
+            var count = 0
+            for (p, s) in self.clientSessions {
+                if s.connectedPeers.contains(p) { count += 1 }
+            }
+            self.connectedPeerCount = count
         }
     }
 
@@ -402,6 +408,19 @@ extension HostConnectivityService: MCNearbyServiceAdvertiserDelegate {
         withContext context: Data?,
         invitationHandler: @escaping (Bool, MCSession?) -> Void
     ) {
-        invitationHandler(true, mcSession)
+        // Create a new session specifically for this peer to force a star topology.
+        // This prevents the unstable mesh network formation that causes players
+        // to drop when >2 clients connect using `encryptionPreference: .none`.
+        let newSession = MCSession(peer: self.peerID, securityIdentity: nil, encryptionPreference: .none)
+        newSession.delegate = self
+        
+        Task { @MainActor in
+            if let old = self.clientSessions[peerID] {
+                old.disconnect()
+            }
+            self.clientSessions[peerID] = newSession
+        }
+        
+        invitationHandler(true, newSession)
     }
 }
