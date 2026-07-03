@@ -27,7 +27,7 @@ struct GameSessionTests {
     @Test("canStart is false with fewer than two players, even if ready")
     func canStartRequiresMinimumPlayers() {
         let session = GameSession()
-        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
 
         #expect(session.allReady)
         #expect(!session.canStart)
@@ -36,8 +36,8 @@ struct GameSessionTests {
     @Test("canStart is false until every player is ready")
     func canStartRequiresEveryoneReady() {
         let session = GameSession()
-        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .owl, isReady: false))
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .green, isReady: false))
 
         #expect(!session.allReady)
         #expect(!session.canStart)
@@ -46,8 +46,8 @@ struct GameSessionTests {
     @Test("canStart is true once every player is ready and phase is lobby")
     func canStartTrueWhenAllReady() {
         let session = GameSession()
-        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .green, isReady: true))
 
         #expect(session.canStart)
     }
@@ -56,8 +56,8 @@ struct GameSessionTests {
     func upsertReplacesExistingPlayer() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: false))
-        session.upsert(Player(id: id, nickname: "Ada Lovelace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: false))
+        session.upsert(Player(id: id, nickname: "Ada Lovelace", avatar: .green, isReady: true))
 
         #expect(session.players.count == 1)
         #expect(session.players[0].nickname == "Ada Lovelace")
@@ -68,8 +68,8 @@ struct GameSessionTests {
     func removePlayerDropsMatch() {
         let session = GameSession()
         let keepID = UUID()
-        session.upsert(Player(id: keepID, nickname: "Ada", avatar: .fox, isReady: false))
-        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .owl, isReady: false))
+        session.upsert(Player(id: keepID, nickname: "Ada", avatar: .blue, isReady: false))
+        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .green, isReady: false))
 
         session.removePlayer(id: keepID)
 
@@ -82,8 +82,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let last = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: last, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: last, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
         session.recordMinigameFinish(id: last)
@@ -101,9 +101,9 @@ struct GameSessionTests {
         let first = UUID()
         let leaving = UUID()
         let last = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: leaving, nickname: "Grace", avatar: .owl, isReady: true))
-        session.upsert(Player(id: last, nickname: "Rosalind", avatar: .cat, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: leaving, nickname: "Grace", avatar: .green, isReady: true))
+        session.upsert(Player(id: last, nickname: "Rosalind", avatar: .yellow, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
         session.recordMinigameFinish(id: leaving)
@@ -126,8 +126,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let leaving = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: leaving, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: leaving, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
         session.recordMinigameFinish(id: leaving)
@@ -152,7 +152,7 @@ struct GameSessionTests {
     func beginMinigameResetsState() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.recordMinigameFinish(id: id) // no-op: still .lobby, not .minigame
 
         session.beginMinigame()
@@ -178,7 +178,7 @@ struct GameSessionTests {
     func recordMinigameFinishIgnoresInvalid() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.beginMinigame()
 
         session.recordMinigameFinish(id: UUID()) // unknown player
@@ -194,8 +194,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let last = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: last, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: last, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
 
         session.recordMinigameFinish(id: first)
@@ -212,8 +212,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: second)
         session.recordMinigameFinish(id: first)
@@ -231,8 +231,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
         session.recordMinigameFinish(id: second)
@@ -248,7 +248,7 @@ struct GameSessionTests {
     func recordRoomChoiceIgnoresRepeatWithinTurn() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: id)
         session.beginRoomSelection()
@@ -265,7 +265,7 @@ struct GameSessionTests {
     func recordRoomChoiceEmptyRoom() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: id)
         session.beginRoomSelection()
@@ -278,8 +278,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let last = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: last, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: last, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first) // first arrival: not penalized
         session.recordMinigameFinish(id: last)
@@ -297,8 +297,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let penalized = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: penalized, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: penalized, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
         session.recordMinigameFinish(id: penalized) // last arrival is penalized
@@ -318,8 +318,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
         session.recordMinigameFinish(id: second)
@@ -416,9 +416,9 @@ struct GameSessionTests {
     func removePlayerOfVoterUnblocksGame() {
         let session = GameSession()
         let voter = UUID()
-        session.upsert(Player(id: voter, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .owl, isReady: true))
-        session.upsert(Player(id: UUID(), nickname: "Rosalind", avatar: .cat, isReady: true))
+        session.upsert(Player(id: voter, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .green, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Rosalind", avatar: .yellow, isReady: true))
         session.phase = .notebook
         _ = session.startVoting(playerID: voter)
 
@@ -445,7 +445,7 @@ struct GameSessionTests {
     func beginNextRoundAdvancesNormally() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.roundNumber = 1 // round 2 isn't the Black-out round.
 
         session.beginNextRound()
@@ -504,7 +504,7 @@ struct GameSessionTests {
     func recordBlackoutTaskFinishIgnoresInvalid() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.beginBlackoutTask()
 
         session.recordBlackoutTaskFinish(id: UUID()) // unknown player
@@ -520,8 +520,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginBlackoutTask()
 
         session.recordBlackoutTaskFinish(id: first)
@@ -535,7 +535,7 @@ struct GameSessionTests {
     func removePlayerCascadesBlackoutTaskState() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
         session.beginBlackoutTask()
         session.recordBlackoutTaskFinish(id: id)
 
@@ -557,8 +557,8 @@ struct GameSessionTests {
         let session = makeSession(withBlackoutMinigame: .lightRegulator)
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginBlackoutTask()
 
         session.updateBlackoutLightValue(playerID: first, value: 20)
@@ -573,8 +573,8 @@ struct GameSessionTests {
         let session = makeSession(withBlackoutMinigame: .lightRegulator)
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginBlackoutTask()
         let target = session.blackoutLightTarget
 
@@ -589,7 +589,7 @@ struct GameSessionTests {
     @Test("updateBlackoutLightValue ignores unknown players")
     func updateBlackoutLightValueIgnoresUnknownPlayer() {
         let session = makeSession(withBlackoutMinigame: .lightRegulator)
-        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
         session.beginBlackoutTask()
 
         session.updateBlackoutLightValue(playerID: UUID(), value: 99)
@@ -602,8 +602,8 @@ struct GameSessionTests {
         let session = makeSession(withBlackoutMinigame: .lightRegulator)
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginBlackoutTask()
         session.updateBlackoutLightValue(playerID: first, value: 100)
         session.updateBlackoutLightValue(playerID: second, value: 0)
@@ -635,8 +635,8 @@ struct GameSessionTests {
         let session = makeSession(withBlackoutMinigame: minigame)
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
 
         // Round 2 -> 3 always triggers the Black-out narrative beat.
         session.roundNumber = 2
@@ -683,8 +683,8 @@ struct GameSessionTests {
         let session = GameSession()
         let first = UUID()
         let second = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
-        session.upsert(Player(id: second, nickname: "Grace", avatar: .owl, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame() // mid-game, not .lobby
 
         session.removePlayer(id: second)
@@ -697,7 +697,7 @@ struct GameSessionTests {
     func removePlayerInLobbyIgnoresMinimum() {
         let session = GameSession()
         let id = UUID()
-        session.upsert(Player(id: id, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
 
         session.removePlayer(id: id)
 
@@ -711,7 +711,7 @@ struct GameSessionTests {
         let session = GameSession()
         let originalJoinCode = session.joinCode
         let first = UUID()
-        session.upsert(Player(id: first, nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
         session.roundNumber = 3
         session.phase = .victory
         session.lastAccusation = Accusation(playerID: first, suspectID: session.culpritID, wasCorrect: true)
@@ -731,7 +731,7 @@ struct GameSessionTests {
     @Test("resetToLobby does not clear the used turn-minigame pool")
     func resetToLobbyPreservesUsedMinigamePool() {
         let session = GameSession()
-        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .fox, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
 
         session.beginMinigame()
         let firstPick = session.turnMinigame

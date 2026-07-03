@@ -54,8 +54,8 @@ struct GameMessageTests {
     @Test("sessionState round-trips with players, phase, minigame, room, and vote progress")
     func sessionStateRoundTrip() throws {
         let players = [
-            Player(id: UUID(), nickname: "Ada", avatar: .fox, isReady: true),
-            Player(id: UUID(), nickname: "Grace", avatar: .owl, isReady: false),
+            Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true),
+            Player(id: UUID(), nickname: "Grace", avatar: .green, isReady: false),
         ]
         let finishOrder = [players[1].id, players[0].id]
         let visits = [RoomVisit(playerID: players[1].id, roomID: .library)]

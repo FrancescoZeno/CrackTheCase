@@ -234,7 +234,7 @@ public final class GameSession {
     public func nextAvatar() -> Avatar {
         let used = Set(players.map(\.avatar))
         let available = Avatar.allCases.filter { !used.contains($0) }
-        return available.randomElement() ?? Avatar.allCases.randomElement() ?? .fox
+        return available.randomElement() ?? Avatar.allCases.randomElement() ?? .blue
     }
 
     /// True once every connected player has finished the turn-order minigame.
@@ -289,9 +289,12 @@ public final class GameSession {
         currentTurnIndex >= turnOrder.count
     }
 
-    /// The current turn holder's room choice, once made — distinguishes "has
-    /// not chosen yet" from "chose, and is in the 10s reading window", since
-    /// `currentTurnIndex` only advances after that window elapses.
+    /// The current turn holder's room choice, once made. In practice this is
+    /// only ever momentarily non-nil: the host advances the turn immediately
+    /// after recording a choice (see `HostConnectivityService`), so by the
+    /// time observers see the updated state, `currentTurnPlayerID` has
+    /// already moved to the next player. Kept mainly to guard
+    /// `recordRoomChoice` against a duplicate call for the same turn.
     public var currentRoomChoice: RoomVisit? {
         guard let current = currentTurnPlayerID, let last = roomVisitLog.last, last.playerID == current else {
             return nil
@@ -322,8 +325,10 @@ public final class GameSession {
         return .clue(clue)
     }
 
-    /// Advances to the next player's turn. Called once the current turn
-    /// holder's reading window has elapsed.
+    /// Advances to the next player's turn. Called by the host immediately
+    /// after recording a choice, so turns move as fast as players can pick —
+    /// see `HostConnectivityService`, which holds back the actual clue
+    /// reveal until every turn has gone.
     public func advanceRoomTurn() {
         guard !isRoomSelectionComplete else { return }
         currentTurnIndex += 1

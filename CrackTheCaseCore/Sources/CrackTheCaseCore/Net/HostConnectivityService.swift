@@ -24,6 +24,10 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     private let mcSession: MCSession
     private let advertiser: MCNearbyServiceAdvertiser
     @MainActor private var playerIDsByPeer: [MCPeerID: UUID] = [:]
+    /// Findings collected as each player picks their room this round, held
+    /// back instead of sent immediately so every player reads their clue at
+    /// the same time once the whole turn order has gone — see `.chooseRoom`.
+    @MainActor private var pendingRoomFindings: [UUID: RoomFinding] = [:]
     /// Delayed `removePlayer` calls for players who just disconnected, so a
     /// brief network hiccup doesn't instantly erase their spot in the game —
     /// cancelled if they reconnect within the grace period.
@@ -220,10 +224,21 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
 
         case .chooseRoom(let id, let room):
             guard let finding = session.recordRoomChoice(playerID: id, room: room) else { return }
-            // Broadcast first so the board shows the avatar in the room right
-            // away, then privately reveal what they found to them alone.
+            pendingRoomFindings[id] = finding
+            // Advance the turn immediately — no per-turn waiting — so
+            // everyone picks in quick succession. The board fills in live via
+            // this broadcast, but nobody's clue is revealed yet: every
+            // finding is held back and sent together once the whole turn
+            // order has gone, so all players read their own clue at the
+            // same time.
+            session.advanceRoomTurn()
             broadcastSessionState()
-            sendPrivate(.roomFinding(finding), to: id)
+            if session.isRoomSelectionComplete {
+                for (playerID, pendingFinding) in pendingRoomFindings {
+                    sendPrivate(.roomFinding(pendingFinding), to: playerID)
+                }
+                pendingRoomFindings.removeAll()
+            }
 
         case .startVoting(let id):
             guard session.startVoting(playerID: id) else { return }
