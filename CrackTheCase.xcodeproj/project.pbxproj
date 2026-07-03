@@ -6,14 +6,48 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		154815417A2F39A079EACE9E /* CrackTheCaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = D8A651CC5C0FDBD84928A3F9 /* CrackTheCaseCore */; };
+		21DFE1A586F984D7B04C714E /* CrackTheCaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9525DC0BE7C89F68E36DE3C1 /* CrackTheCaseCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		512A90EE2FF50D0200548ADB /* CrackTheCase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrackTheCase.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		512A91022FF50D2F00548ADB /* CrackTheCaseIos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrackTheCaseIos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		094C84BE26CF48F5D4EC4DF7 /* Exceptions for "CrackTheCase" folder in "CrackTheCase" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 512A90ED2FF50D0200548ADB /* CrackTheCase */;
+		};
+		14EC9EDD30920371395D225A /* Exceptions for "CrackTheCaseIos" folder in "CrackTheCaseIos" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 512A91012FF50D2F00548ADB /* CrackTheCaseIos */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		512A90F02FF50D0200548ADB /* CrackTheCase */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				094C84BE26CF48F5D4EC4DF7 /* Exceptions for "CrackTheCase" folder in "CrackTheCase" target */,
+			);
 			path = CrackTheCase;
+			sourceTree = "<group>";
+		};
+		512A91032FF50D2F00548ADB /* CrackTheCaseIos */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				14EC9EDD30920371395D225A /* Exceptions for "CrackTheCaseIos" folder in "CrackTheCaseIos" target */,
+			);
+			path = CrackTheCaseIos;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -23,6 +57,15 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				21DFE1A586F984D7B04C714E /* CrackTheCaseCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		512A90FF2FF50D2F00548ADB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				154815417A2F39A079EACE9E /* CrackTheCaseCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -33,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				512A90F02FF50D0200548ADB /* CrackTheCase */,
+				512A91032FF50D2F00548ADB /* CrackTheCaseIos */,
 				512A90EF2FF50D0200548ADB /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				512A90EE2FF50D0200548ADB /* CrackTheCase.app */,
+				512A91022FF50D2F00548ADB /* CrackTheCaseIos.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -65,9 +110,33 @@
 			);
 			name = CrackTheCase;
 			packageProductDependencies = (
+				9525DC0BE7C89F68E36DE3C1 /* CrackTheCaseCore */,
 			);
 			productName = CrackTheCase;
 			productReference = 512A90EE2FF50D0200548ADB /* CrackTheCase.app */;
+			productType = "com.apple.product-type.application";
+		};
+		512A91012FF50D2F00548ADB /* CrackTheCaseIos */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 512A910C2FF50D3000548ADB /* Build configuration list for PBXNativeTarget "CrackTheCaseIos" */;
+			buildPhases = (
+				512A90FE2FF50D2F00548ADB /* Sources */,
+				512A90FF2FF50D2F00548ADB /* Frameworks */,
+				512A91002FF50D2F00548ADB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				512A91032FF50D2F00548ADB /* CrackTheCaseIos */,
+			);
+			name = CrackTheCaseIos;
+			packageProductDependencies = (
+				D8A651CC5C0FDBD84928A3F9 /* CrackTheCaseCore */,
+			);
+			productName = CrackTheCaseIos;
+			productReference = 512A91022FF50D2F00548ADB /* CrackTheCaseIos.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -83,6 +152,9 @@
 					512A90ED2FF50D0200548ADB = {
 						CreatedOnToolsVersion = 26.6;
 					};
+					512A91012FF50D2F00548ADB = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 512A90E92FF50D0200548ADB /* Build configuration list for PBXProject "CrackTheCase" */;
@@ -94,12 +166,16 @@
 			);
 			mainGroup = 512A90E52FF50D0200548ADB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0819AE46C839DA41455938CE /* XCLocalSwiftPackageReference "CrackTheCaseCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 512A90EF2FF50D0200548ADB /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				512A90ED2FF50D0200548ADB /* CrackTheCase */,
+				512A91012FF50D2F00548ADB /* CrackTheCaseIos */,
 			);
 		};
 /* End PBXProject section */
@@ -112,10 +188,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		512A91002FF50D2F00548ADB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		512A90EA2FF50D0200548ADB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		512A90FE2FF50D2F00548ADB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -256,6 +346,7 @@
 				DEVELOPMENT_TEAM = 6F75J53M2T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CrackTheCase/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -285,6 +376,7 @@
 				DEVELOPMENT_TEAM = 6F75J53M2T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CrackTheCase/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -301,6 +393,76 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 3;
+			};
+			name = Release;
+		};
+		512A910D2FF50D3000548ADB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6F75J53M2T;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CrackTheCaseIos/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.francescozeno.CrackTheCaseIos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		512A910E2FF50D3000548ADB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6F75J53M2T;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CrackTheCaseIos/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.francescozeno.CrackTheCaseIos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -325,7 +487,36 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		512A910C2FF50D3000548ADB /* Build configuration list for PBXNativeTarget "CrackTheCaseIos" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				512A910D2FF50D3000548ADB /* Debug */,
+				512A910E2FF50D3000548ADB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		0819AE46C839DA41455938CE /* XCLocalSwiftPackageReference "CrackTheCaseCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = CrackTheCaseCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9525DC0BE7C89F68E36DE3C1 /* CrackTheCaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0819AE46C839DA41455938CE /* XCLocalSwiftPackageReference "CrackTheCaseCore" */;
+			productName = CrackTheCaseCore;
+		};
+		D8A651CC5C0FDBD84928A3F9 /* CrackTheCaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0819AE46C839DA41455938CE /* XCLocalSwiftPackageReference "CrackTheCaseCore" */;
+			productName = CrackTheCaseCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 512A90E62FF50D0200548ADB /* Project object */;
 }

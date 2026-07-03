@@ -1,6 +1,15 @@
 {
   "images" : [
-
+    {
+      "filename" : "IconLarge.png",
+      "idiom" : "tv",
+      "scale" : "1x"
+    },
+    {
+      "filename" : "IconLarge@2x.png",
+      "idiom" : "tv",
+      "scale" : "2x"
+    }
   ],
   "info" : {
     "author" : "xcode",
