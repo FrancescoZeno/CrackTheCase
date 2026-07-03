@@ -73,6 +73,12 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     /// around only until its `.joinResult` reply lands so an acceptance can
     /// be cached into `lastAcceptedJoinCode`.
     @MainActor private var pendingJoinCode: String?
+    
+    /// The MCPeerID of the host this client is attempting to connect to.
+    /// In a MultipeerConnectivity session, all accepted peers form a mesh,
+    /// meaning clients will receive state updates for other clients. We only
+    /// care about the connection to the host.
+    @MainActor private var hostPeerID: MCPeerID?
 
     @MainActor
     public init(displayName: String = UUID().uuidString, localPlayerID: UUID = PlayerIdentity.current()) {
@@ -135,6 +141,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     /// Invites a discovered host to connect.
     @MainActor
     public func connect(to host: MCPeerID) {
+        hostPeerID = host
         connectionState = .connecting
         browser.invitePeer(host, to: mcSession, withContext: nil, timeout: 30)
     }
@@ -354,6 +361,8 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
 extension ClientConnectivityService: MCSessionDelegate {
     public nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor in
+            guard peerID == self.hostPeerID else { return }
+            
             switch state {
             case .connected:
                 self.connectionState = .connected

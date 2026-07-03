@@ -65,7 +65,12 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: host.session.phase)
-        .onAppear { host.start() }
+        .onAppear {
+            host.start()
+            #if os(tvOS) || os(iOS)
+            UIApplication.shared.isIdleTimerDisabled = true
+            #endif
+        }
         .onChange(of: host.session.canStart) { _, canStart in
             if canStart {
                 startCountdown()

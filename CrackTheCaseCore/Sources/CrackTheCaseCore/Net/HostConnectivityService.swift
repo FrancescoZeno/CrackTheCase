@@ -199,6 +199,12 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             // looks the peer up via `playerIDsByPeer`): on rejection that
             // mapping was deliberately never created.
             send(.joinResult(accepted: accepted), to: [peer])
+            
+            // If they are re-joining mid-game, they missed session state updates.
+            // Broadcasting it brings them (and everyone else) back in sync.
+            if accepted {
+                broadcastSessionState()
+            }
 
         case .join(let id, let nickname):
             guard playerIDsByPeer[peer] == id else { return }
