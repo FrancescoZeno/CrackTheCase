@@ -30,113 +30,130 @@ struct BlackoutPistonSyncView: View {
     @State private var leverOffset: CGFloat = 0
     @State private var flashRedTimer = false
 
-    private let trackHeight: CGFloat = 180
-    private let headHeight: CGFloat = 40
-    private let maxOffset: CGFloat = 70
-    private let targetZoneRange: ClosedRange<CGFloat> = -16...16
+    // Sized to fit a phone's short landscape height — see the `HStack`
+    // layout below, which puts the pistons and the lever side by side
+    // instead of stacking everything vertically (the original vertical
+    // stack of status + pistons + label + lever overflowed landscape).
+    private let trackHeight: CGFloat = 130
+    private let headHeight: CGFloat = 30
+    private let maxOffset: CGFloat = 50
+    private let targetZoneRange: ClosedRange<CGFloat> = -11...11
+    private let leverTrackHeight: CGFloat = 120
+    private let leverMaxOffset: CGFloat = 90
+    private let leverSuccessThreshold: CGFloat = 68
 
     private var allLocked: Bool {
         pistons.allSatisfy(\.isLocked)
     }
 
     var body: some View {
-        VStack(spacing: 24) {
-            HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(timeRemaining <= 5 && !allLocked ? .phoenixDestructive : .phoenixGold)
-                    .opacity(flashRedTimer ? 1.0 : 0.5)
+        ZStack {
+            Color.phoenixBackground.ignoresSafeArea()
 
-                Text(allLocked ? "SYSTEM STABLE" : "OVERLOAD IN: \(timeRemaining)s")
-                    .font(.system(size: 20, weight: .bold, design: .monospaced))
-                    .foregroundStyle(allLocked ? .phoenixGreen : (timeRemaining <= 5 ? .phoenixDestructive : .phoenixGold))
-            }
-            .opacity(isPowerOn ? 0 : 1)
+            HStack(spacing: 28) {
+                VStack(spacing: 14) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(timeRemaining <= 5 && !allLocked ? .phoenixDestructive : .phoenixGold)
+                            .opacity(flashRedTimer ? 1.0 : 0.5)
 
-            HStack(spacing: 16) {
-                ForEach(pistons.indices, id: \.self) { index in
-                    PistonColumn(
-                        piston: pistons[index],
-                        trackHeight: trackHeight,
-                        headHeight: headHeight,
-                        isPowerOn: isPowerOn
+                        Text(allLocked ? "SYSTEM STABLE" : "OVERLOAD IN: \(timeRemaining)s")
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundStyle(allLocked ? .phoenixGreen : (timeRemaining <= 5 ? .phoenixDestructive : .phoenixGold))
+                    }
+                    .opacity(isPowerOn ? 0 : 1)
+
+                    if !allLocked {
+                        MinigameInstructionText(text: "Tap each piston while it's in the green zone to lock it, then pull the lever.")
+                    }
+
+                    HStack(spacing: 14) {
+                        ForEach(pistons.indices, id: \.self) { index in
+                            PistonColumn(
+                                piston: pistons[index],
+                                trackHeight: trackHeight,
+                                headHeight: headHeight,
+                                isPowerOn: isPowerOn
+                            )
+                            .onTapGesture {
+                                handlePistonTap(at: index)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.phoenixCard)
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
                     )
-                    .onTapGesture {
-                        handlePistonTap(at: index)
-                    }
-                }
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.phoenixCard)
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
-            )
-
-            Text("MAIN POWER")
-                .font(.system(size: 18, weight: .black, design: .monospaced))
-                .foregroundStyle(allLocked ? .phoenixGold : .phoenixMuted)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.black)
-                    .frame(width: 40, height: 160)
-
-                VStack {
-                    Circle()
-                        .fill(allLocked ? Color.phoenixGreen : Color.phoenixDestructive)
-                        .frame(width: 16, height: 16)
-                        .opacity(allLocked ? 1.0 : (flashRedTimer ? 1.0 : 0.3))
-                        .padding(.top, 12)
-                    Spacer()
                 }
 
-                ZStack {
-                    Rectangle()
-                        .fill(Color.phoenixMuted)
-                        .frame(width: 64, height: 32)
-                        .cornerRadius(5)
+                VStack(spacing: 10) {
+                    Text("MAIN POWER")
+                        .font(.system(size: 15, weight: .black, design: .monospaced))
+                        .foregroundStyle(allLocked ? .phoenixGold : .phoenixMuted)
 
-                    HStack(spacing: 0) {
-                        ForEach(0..<4) { _ in
-                            Rectangle().fill(Color.phoenixGold).frame(width: 6)
-                            Rectangle().fill(Color.black).frame(width: 6)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.black)
+                            .frame(width: 36, height: leverTrackHeight)
+
+                        VStack {
+                            Circle()
+                                .fill(allLocked ? Color.phoenixGreen : Color.phoenixDestructive)
+                                .frame(width: 14, height: 14)
+                                .opacity(allLocked ? 1.0 : (flashRedTimer ? 1.0 : 0.3))
+                                .padding(.top, 10)
+                            Spacer()
                         }
-                    }
-                    .mask(Rectangle().frame(width: 64, height: 32).cornerRadius(5))
-                }
-                .offset(y: -60 + leverOffset)
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            guard allLocked && !isPowerOn else { return }
-                            let newOffset = value.translation.height
-                            if newOffset > 0 && newOffset <= 120 {
-                                leverOffset = newOffset
-                            }
-                        }
-                        .onEnded { _ in
-                            guard allLocked && !isPowerOn else { return }
-                            if leverOffset > 90 {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
-                                    leverOffset = 120
-                                }
-                                triggerPowerOn()
-                            } else {
-                                withAnimation(.spring()) {
-                                    leverOffset = 0
+
+                        ZStack {
+                            Rectangle()
+                                .fill(Color.phoenixMuted)
+                                .frame(width: 58, height: 28)
+                                .cornerRadius(5)
+
+                            HStack(spacing: 0) {
+                                ForEach(0..<4) { _ in
+                                    Rectangle().fill(Color.phoenixGold).frame(width: 5.5)
+                                    Rectangle().fill(Color.black).frame(width: 5.5)
                                 }
                             }
+                            .mask(Rectangle().frame(width: 58, height: 28).cornerRadius(5))
                         }
-                )
+                        .offset(y: -leverTrackHeight / 2 + 15 + leverOffset)
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    guard allLocked && !isPowerOn else { return }
+                                    let newOffset = value.translation.height
+                                    if newOffset > 0 && newOffset <= leverMaxOffset {
+                                        leverOffset = newOffset
+                                    }
+                                }
+                                .onEnded { _ in
+                                    guard allLocked && !isPowerOn else { return }
+                                    if leverOffset > leverSuccessThreshold {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                                            leverOffset = leverMaxOffset
+                                        }
+                                        triggerPowerOn()
+                                    } else {
+                                        withAnimation(.spring()) {
+                                            leverOffset = 0
+                                        }
+                                    }
+                                }
+                        )
+                    }
+                    .frame(width: 80, height: leverTrackHeight + 30)
+                    .background(Color.phoenixCard)
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                }
             }
-            .frame(width: 90, height: 190)
-            .background(Color.phoenixCard)
-            .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
-
-            Spacer()
+            .padding(.horizontal, 20)
         }
-        .padding(.top, 20)
         .onReceive(engineTimer) { _ in
             guard !isPowerOn else { return }
             updatePistons()
@@ -177,17 +194,17 @@ struct BlackoutPistonSyncView: View {
         if targetZoneRange.contains(pistons[index].offset) {
             pistons[index].offset = 0
             pistons[index].isLocked = true
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            Haptics.impact(.heavy)
             if allLocked {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
             }
         } else {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.notify(.error)
         }
     }
 
     private func triggerOverload() {
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        Haptics.notify(.error)
         withAnimation(.easeInOut(duration: 0.3)) {
             for i in pistons.indices {
                 pistons[i].isLocked = false
@@ -198,12 +215,12 @@ struct BlackoutPistonSyncView: View {
     }
 
     private func triggerPowerOn() {
-        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        Haptics.impact(.heavy)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             withAnimation(.easeOut(duration: 0.8)) {
                 isPowerOn = true
             }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.notify(.success)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 onComplete()
             }

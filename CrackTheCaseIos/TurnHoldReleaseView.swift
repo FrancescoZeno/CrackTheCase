@@ -26,21 +26,21 @@ struct TurnHoldReleaseView: View {
             HStack(spacing: 20) {
                 VStack(spacing: 25) {
                     Text("Thumb Sensor")
-                        .font(.largeTitle)
-                        .bold()
-                        .foregroundStyle(.white)
+                        .font(.system(size: 26, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
                         .multilineTextAlignment(.center)
+
+                    MinigameInstructionText(text: "Hold the circle and let go the instant it's completely full.")
 
                     VStack(spacing: 12) {
                         Text(feedbackMessage)
-                            .font(.title3)
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundStyle(feedbackColor)
-                            .fontWeight(.bold)
                             .multilineTextAlignment(.center)
                             .frame(height: 60)
 
                         Text(feedbackStatusSubtitle)
-                            .font(.headline)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundStyle(.phoenixMuted)
                     }
                 }

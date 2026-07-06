@@ -3,9 +3,9 @@ import Foundation
 /// The current phase of a game session, mirrored from host to every client.
 ///
 /// `.minigame` through `.notebook` repeat every round (see
-/// `GameSession.beginNextRound()`); `.voting`/`.victory` can interrupt that
-/// loop at any `.notebook`, and `.blackoutReveal`/`.blackoutTask` replace a
-/// single round's `.minigame` beat once per game.
+/// `GameSession.beginNextRound()`); `.voting`/`.victory`/`.defeat` can
+/// interrupt that loop at any `.notebook`, and `.blackoutReveal`/
+/// `.blackoutTask` replace a single round's `.minigame` beat once per game.
 public enum GamePhase: Codable, Sendable, Equatable {
     /// The client has not yet joined a host session.
     case connecting
@@ -31,6 +31,11 @@ public enum GamePhase: Codable, Sendable, Equatable {
     case voting
     /// A player accused the actual culprit — the game is over.
     case victory
+    /// Round `GameSession.maxRoundNumber` finished its notebook phase
+    /// without anyone accusing the actual culprit — everyone loses. Reached
+    /// the same way as `.victory` (from `.notebook`, via `beginNextRound()`),
+    /// just by running out of rounds instead of by a correct accusation.
+    case defeat
     /// The Apple TV shows the black-out narrative beat: lights out, 2 of
     /// the 3 clues have just relocated. Happens exactly once per game.
     case blackoutReveal

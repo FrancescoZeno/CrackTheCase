@@ -32,6 +32,17 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// brief network hiccup doesn't instantly erase their spot in the game —
     /// cancelled if they reconnect within the grace period.
     @MainActor private var pendingRemovals: [UUID: Task<Void, Never>] = [:]
+    /// Armed the moment the first player finishes this round's turn-order
+    /// minigame; once `GameSession.minigameSkipGracePeriod` elapses, whoever
+    /// still hasn't finished gets auto-skipped (with the same penalty as
+    /// pressing "Skip" themselves) so one stuck player can't stall the game
+    /// forever. Cancelled once everyone's finished, the round moves on, or a
+    /// stuck player leaves and drops the group below the finish count.
+    @MainActor private var minigameDeadlineTask: Task<Void, Never>?
+    /// Same idea as `minigameDeadlineTask`, but for the Black-out emergency
+    /// task — armed in `beginBlackoutTask()` instead of on first finish,
+    /// and its skips carry no penalty (see `GameSession.skipBlackoutTask(id:)`).
+    @MainActor private var blackoutDeadlineTask: Task<Void, Never>?
 
     /// How long a disconnected player's roster entry survives before being
     /// removed for good, giving a transient drop time to reconnect.
@@ -113,6 +124,10 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// order, and notifies every client.
     @MainActor
     public func beginMinigame() {
+        minigameDeadlineTask?.cancel()
+        minigameDeadlineTask = nil
+        blackoutDeadlineTask?.cancel()
+        blackoutDeadlineTask = nil
         session.beginMinigame()
         broadcastSessionState()
     }
@@ -121,6 +136,8 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// as the turn order, and notifies every client.
     @MainActor
     public func beginRoomSelection() {
+        minigameDeadlineTask?.cancel()
+        minigameDeadlineTask = nil
         session.beginRoomSelection()
         broadcastSessionState()
     }
@@ -150,11 +167,25 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
         broadcastSessionState()
     }
 
-    /// Transitions into `.blackoutTask`, starting the emergency-task timer.
+    /// Transitions into `.blackoutTask`, starting the emergency-task timer,
+    /// and arms the skip-grace-period deadline: after
+    /// `GameSession.blackoutSkipGracePeriod`, anyone still stuck is
+    /// auto-skipped (no penalty — see `GameSession.skipBlackoutTask(id:)`)
+    /// so the round can't stall forever on one player.
     @MainActor
     public func beginBlackoutTask() {
         session.beginBlackoutTask()
         broadcastSessionState()
+
+        blackoutDeadlineTask?.cancel()
+        blackoutDeadlineTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(GameSession.blackoutSkipGracePeriod))
+            guard let self, !Task.isCancelled, self.session.phase == .blackoutTask else { return }
+            for player in self.session.players where !self.session.blackoutTaskFinishedPlayerIDs.contains(player.id) {
+                self.session.skipBlackoutTask(id: player.id)
+            }
+            self.broadcastSessionState()
+        }
     }
 
     /// Starts a fresh game with the same connected players from the TV's
@@ -200,15 +231,36 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
                 broadcastSessionState()
             }
 
-        case .join(let id, let nickname):
+        case .join(let id, let nickname, let avatar):
             guard playerIDsByPeer[peer] == id else { return }
-            let player = Player(id: id, nickname: nickname, avatar: session.nextAvatar())
+            // Joining is only meaningful pre-game: the whole flow (turn
+            // order, room clues, notebook) assumes a fixed roster once the
+            // lobby closes, and a client that joined mid-round would never
+            // have gone through `.lobby` in the first place — its own
+            // sessionState would jump straight into whatever phase is
+            // already running, and it'd silently count toward
+            // `players.count` without ever appearing in this round's
+            // `minigameFinishOrder`/`blackoutTaskFinishedPlayerIDs`,
+            // stalling the round forever waiting for a finish that can't
+            // come. Simplest fix: a join outside `.lobby` is ignored.
+            guard session.phase == .lobby else { return }
+            let trimmedNickname = nickname.trimmingCharacters(in: .whitespaces)
+            guard !trimmedNickname.isEmpty else { return }
+            // If the requested avatar is taken or missing, we could fallback,
+            // but for a simple local game we can just allow the chosen one or fallback if nil.
+            let assignedAvatar = avatar ?? session.nextAvatar()
+            let player = Player(id: id, nickname: trimmedNickname, avatar: assignedAvatar)
             session.upsert(player)
             broadcastSessionState()
 
-        case .updateProfile(let id, let nickname):
+        case .updateProfile(let id, let nickname, let avatar):
             guard var player = session.players.first(where: { $0.id == id }) else { return }
-            player.nickname = nickname
+            let trimmedNickname = nickname.trimmingCharacters(in: .whitespaces)
+            guard !trimmedNickname.isEmpty else { return }
+            player.nickname = trimmedNickname
+            if let newAvatar = avatar {
+                player.avatar = newAvatar
+            }
             session.upsert(player)
             broadcastSessionState()
 
@@ -219,7 +271,19 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             broadcastSessionState()
 
         case .finishMinigame(let id):
+            let wasFirstFinish = session.minigameFirstFinishAt == nil
             session.recordMinigameFinish(id: id)
+            if wasFirstFinish, session.minigameFirstFinishAt != nil {
+                armMinigameDeadline()
+            }
+            broadcastSessionState()
+
+        case .skipMinigame(let id):
+            let wasFirstFinish = session.minigameFirstFinishAt == nil
+            session.skipMinigame(id: id)
+            if wasFirstFinish, session.minigameFirstFinishAt != nil {
+                armMinigameDeadline()
+            }
             broadcastSessionState()
 
         case .chooseRoom(let id, let room):
@@ -233,12 +297,7 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             // same time.
             session.advanceRoomTurn()
             broadcastSessionState()
-            if session.isRoomSelectionComplete {
-                for (playerID, pendingFinding) in pendingRoomFindings {
-                    sendPrivate(.roomFinding(pendingFinding), to: playerID)
-                }
-                pendingRoomFindings.removeAll()
-            }
+            flushRoomFindingsIfComplete()
 
         case .startVoting(let id):
             guard session.startVoting(playerID: id) else { return }
@@ -252,6 +311,10 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             session.recordBlackoutTaskFinish(id: id)
             broadcastSessionState()
 
+        case .skipBlackoutTask(let id):
+            session.skipBlackoutTask(id: id)
+            broadcastSessionState()
+
         case .updateBlackoutLightValue(let id, let value):
             session.updateBlackoutLightValue(playerID: id, value: value)
             broadcastSessionState()
@@ -259,6 +322,24 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
         case .sessionState, .startGame, .roomFinding, .joinResult, .kicked:
             // Host-authored messages; a well-behaved client never sends these.
             break
+        }
+    }
+
+    /// Starts the countdown that auto-skips (with penalty) anyone still
+    /// stuck on this round's turn-order minigame once
+    /// `GameSession.minigameSkipGracePeriod` elapses since the first
+    /// finisher. Called the moment `session.minigameFirstFinishAt` first
+    /// gets set, from either `.finishMinigame` or `.skipMinigame`.
+    @MainActor
+    private func armMinigameDeadline() {
+        minigameDeadlineTask?.cancel()
+        minigameDeadlineTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(GameSession.minigameSkipGracePeriod))
+            guard let self, !Task.isCancelled, self.session.phase == .minigame else { return }
+            for player in self.session.players where !self.session.minigameFinishOrder.contains(player.id) {
+                self.session.skipMinigame(id: player.id)
+            }
+            self.broadcastSessionState()
         }
     }
 
@@ -290,6 +371,11 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             session.removePlayer(id: playerID)
             pendingRemovals.removeValue(forKey: playerID)
             broadcastSessionState()
+            // The player who just aged out could have been the last turn
+            // holder room selection was waiting on — see
+            // `flushRoomFindingsIfComplete`'s doc comment for why this
+            // matters as much as the `.chooseRoom` call site.
+            flushRoomFindingsIfComplete()
             send(.kicked, to: [peer])
         }
     }
@@ -301,12 +387,14 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
                 players: session.players,
                 phase: session.phase,
                 minigameFinishOrder: session.minigameFinishOrder,
-                penalizedPlayerID: session.penalizedPlayerID,
+                minigameFirstFinishAt: session.minigameFirstFinishAt,
+                penalizedPlayerIDs: session.penalizedPlayerIDs,
                 turnOrder: session.turnOrder,
                 currentTurnIndex: session.currentTurnIndex,
                 roomVisitLog: session.roomVisitLog,
                 votingPlayerID: session.votingPlayerID,
                 lastAccusation: session.lastAccusation,
+                failedAccusationPlayerIDs: session.failedAccusationPlayerIDs,
                 roundNumber: session.roundNumber,
                 isCurrentRoundBlackout: session.isCurrentRoundBlackout,
                 blackoutTaskStartedAt: session.blackoutTaskStartedAt,
@@ -322,7 +410,7 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     @MainActor
     private func broadcast(_ message: GameMessage) {
         let peers = clientSessions.compactMap { (peer, session) -> MCPeerID? in
-            session.connectedPeers.contains(peer) ? peer : nil
+            !session.connectedPeers.isEmpty ? peer : nil
         }
         send(message, to: peers)
     }
@@ -333,6 +421,24 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     private func sendPrivate(_ message: GameMessage, to playerID: UUID) {
         guard let peer = playerIDsByPeer.first(where: { $0.value == playerID })?.key else { return }
         send(message, to: [peer])
+    }
+
+    /// Delivers every held-back `roomFinding` once the whole turn order has
+    /// gone — called both right after a `.chooseRoom` (the common case) and
+    /// from `handleDisconnect`'s delayed removal. That second call site
+    /// matters: room selection can also complete because the *last*
+    /// remaining turn holder disconnects rather than actually choosing a
+    /// room (`removePlayer` shrinks `turnOrder`), and without this the
+    /// findings collected from everyone who already went this round would
+    /// never be sent — silently stranding the round in `.roomSelection`
+    /// forever, since nothing else ever flushes `pendingRoomFindings`.
+    @MainActor
+    private func flushRoomFindingsIfComplete() {
+        guard session.isRoomSelectionComplete else { return }
+        for (playerID, pendingFinding) in pendingRoomFindings {
+            sendPrivate(.roomFinding(pendingFinding), to: playerID)
+        }
+        pendingRoomFindings.removeAll()
     }
 
     /// Encodes and sends `message` to `peers`, logging failures instead of
@@ -349,11 +455,13 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             let data = try message.encoded()
             for peer in peers {
                 guard let session = clientSessions[peer] else { continue }
-                if !session.connectedPeers.contains(peer) {
+                let targetPeers = session.connectedPeers
+                if targetPeers.isEmpty {
                     print("HostConnectivityService: sending \(message) to peer no longer in connectedPeers: \(peer.displayName)")
+                    continue
                 }
                 do {
-                    try session.send(data, toPeers: [peer], with: .reliable)
+                    try session.send(data, toPeers: targetPeers, with: .reliable)
                 } catch {
                     print("HostConnectivityService: failed to send \(message) to \(peer.displayName): \(error)")
                     overallSuccess = false
@@ -370,12 +478,16 @@ extension HostConnectivityService: MCSessionDelegate {
     public nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor in
             if state == .notConnected {
-                self.clientSessions.removeValue(forKey: peerID)
-                self.handleDisconnect(of: peerID)
+                // Find the entry that has this session to safely remove it,
+                // instead of relying on exact MCPeerID equality which can fail.
+                if let key = self.clientSessions.first(where: { $0.value === session })?.key {
+                    self.clientSessions.removeValue(forKey: key)
+                    self.handleDisconnect(of: key)
+                }
             }
             var count = 0
-            for (p, s) in self.clientSessions {
-                if s.connectedPeers.contains(p) { count += 1 }
+            for (_, s) in self.clientSessions {
+                if !s.connectedPeers.isEmpty { count += 1 }
             }
             self.connectedPeerCount = count
         }

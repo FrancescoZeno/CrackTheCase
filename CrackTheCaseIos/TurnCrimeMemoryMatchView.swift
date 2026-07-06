@@ -50,10 +50,7 @@ struct TurnCrimeMemoryMatchView: View {
                             .font(.system(size: 26, weight: .black, design: .rounded))
                             .foregroundStyle(.phoenixGold)
 
-                        Text("Locate and match all 4 pairs of campus evidence.\nA single mismatch will hide all discovered clues, but the clock won't stop!")
-                            .font(.subheadline)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.white.opacity(0.6))
+                        MinigameInstructionText(text: "Tap 2 cards to match all 4 pairs. A wrong pair flips back over, but the clock keeps running!")
                             .padding(.horizontal, 40)
                     }
 
@@ -71,7 +68,7 @@ struct TurnCrimeMemoryMatchView: View {
                                 .font(.system(size: 24, weight: .black, design: .rounded))
                                 .foregroundStyle(.phoenixGold)
                             Text("Find the matching evidence. Speed determines your turn order.")
-                                .font(.caption)
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
                                 .foregroundStyle(.white.opacity(0.5))
                         }
 
@@ -81,7 +78,7 @@ struct TurnCrimeMemoryMatchView: View {
                             Image(systemName: "stopwatch")
                                 .foregroundStyle(.phoenixGold)
                             Text(String(format: "%.2fs", elapsedTime))
-                                .font(.system(.title3, design: .monospaced)).bold()
+                                .font(.system(size: 20, weight: .bold, design: .monospaced))
                                 .foregroundStyle(.white)
                         }
                         .padding(.horizontal, 15)
@@ -244,7 +241,7 @@ private struct MemoryCardFace: View {
                     )
                     .overlay(
                         Image(systemName: "scope")
-                            .font(.title2)
+                            .font(.system(size: 22))
                             .foregroundStyle(.phoenixGold.opacity(0.25))
                     )
             }

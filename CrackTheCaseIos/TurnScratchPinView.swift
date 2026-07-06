@@ -7,7 +7,7 @@ struct TurnScratchPinView: View {
     let onComplete: () -> Void
 
     @State private var secretPin = ""
-    @State private var feedbackMessage = "Rub quickly to remove the digital coating"
+    @State private var feedbackMessage = "Ready when you are"
     @State private var feedbackColor: Color = .phoenixMuted
     @State private var isCompleted = false
 
@@ -37,12 +37,13 @@ struct TurnScratchPinView: View {
             HStack(spacing: 30) {
                 VStack(spacing: 15) {
                     Text("Bypass Door PIN")
-                        .font(.title2)
-                        .bold()
-                        .foregroundStyle(.white)
+                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
+
+                    MinigameInstructionText(text: "Rub the panel to reveal the hidden PIN, then type it in on the right.")
 
                     Text(feedbackMessage)
-                        .font(.subheadline)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(feedbackColor)
                         .multilineTextAlignment(.center)
                         .frame(height: 40)
@@ -83,7 +84,7 @@ struct TurnScratchPinView: View {
                     .frame(width: areaWidth, height: areaHeight)
 
                     Text("Coating removed: \(Int(scratchProgress * 100))%")
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
                 }
                 .frame(width: geometry.size.width * 0.55)
@@ -92,7 +93,7 @@ struct TurnScratchPinView: View {
 
                 VStack(spacing: 10) {
                     Text("Enter PIN")
-                        .font(.headline)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
 
                     let gridItems = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
@@ -104,7 +105,7 @@ struct TurnScratchPinView: View {
                                 handleNumpadInput(label)
                             } label: {
                                 Text(label)
-                                    .font(.system(size: label.count > 1 ? 14 : 20, weight: .bold))
+                                    .font(.system(size: label.count > 1 ? 14 : 20, weight: .bold, design: .rounded))
                                     .foregroundStyle(label == "Enter" ? Color.phoenixGreen : (label == "Clear" ? Color.phoenixDestructive : .white))
                                     .frame(maxWidth: .infinity, minHeight: 45)
                                     .background(Color.white.opacity(0.08))
@@ -140,7 +141,7 @@ struct TurnScratchPinView: View {
             if !erasedTiles.contains(tileId) {
                 erasedTiles.insert(tileId)
                 if erasedTiles.count % 6 == 0 {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptics.impact(.light)
                 }
             }
         }
@@ -158,13 +159,13 @@ struct TurnScratchPinView: View {
                 feedbackMessage = "Access granted! Door unlocked."
                 feedbackColor = .phoenixGreen
                 isCompleted = true
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
                 onComplete()
             } else {
                 feedbackMessage = "Access denied! Wrong PIN entered."
                 feedbackColor = .phoenixDestructive
                 currentInput = ""
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                Haptics.notify(.error)
             }
         } else if currentInput.count < 4 {
             currentInput += label
@@ -183,7 +184,7 @@ struct TurnScratchPinView: View {
         erasedTiles.removeAll()
         currentInput = ""
         isCompleted = false
-        feedbackMessage = "Rub quickly to remove the digital coating"
+        feedbackMessage = "Ready when you are"
         feedbackColor = .phoenixMuted
     }
 }

@@ -77,7 +77,7 @@ struct GameSessionTests {
         #expect(session.players[0].nickname == "Grace")
     }
 
-    @Test("removePlayer cascades out of minigameFinishOrder and penalizedPlayerID")
+    @Test("removePlayer cascades out of minigameFinishOrder and penalizedPlayerIDs")
     func removePlayerCascadesMinigameState() {
         let session = GameSession()
         let first = UUID()
@@ -86,13 +86,13 @@ struct GameSessionTests {
         session.upsert(Player(id: last, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
-        session.recordMinigameFinish(id: last)
-        #expect(session.penalizedPlayerID == last)
+        session.skipMinigame(id: last)
+        #expect(session.penalizedPlayerIDs == [last])
 
         session.removePlayer(id: last)
 
         #expect(!session.minigameFinishOrder.contains(last))
-        #expect(session.penalizedPlayerID == nil)
+        #expect(session.penalizedPlayerIDs.isEmpty)
     }
 
     @Test("removePlayer skips a departed player's turn instead of stalling room selection")
@@ -159,7 +159,8 @@ struct GameSessionTests {
 
         #expect(session.phase == .minigame)
         #expect(session.minigameFinishOrder.isEmpty)
-        #expect(session.penalizedPlayerID == nil)
+        #expect(session.minigameFirstFinishAt == nil)
+        #expect(session.penalizedPlayerIDs.isEmpty)
         #expect(TurnMinigame.allCases.contains(session.turnMinigame))
     }
 
@@ -189,8 +190,8 @@ struct GameSessionTests {
         #expect(session.minigameFinishOrder == [id])
     }
 
-    @Test("penalizedPlayerID is set to the last arrival only once everyone finished")
-    func penalizedPlayerIsLastArrival() {
+    @Test("recordMinigameFinish penalizes only the arrival that completes the group")
+    func recordMinigameFinishPenalizesOnlyLastArrival() {
         let session = GameSession()
         let first = UUID()
         let last = UUID()
@@ -199,12 +200,86 @@ struct GameSessionTests {
         session.beginMinigame()
 
         session.recordMinigameFinish(id: first)
-        #expect(session.penalizedPlayerID == nil)
+        #expect(session.penalizedPlayerIDs.isEmpty)
         #expect(!session.allPlayersFinishedMinigame)
 
         session.recordMinigameFinish(id: last)
-        #expect(session.penalizedPlayerID == last)
+        // Finishing last still costs the round's clue, exactly like before
+        // the skip-grace-period timer existed — see `skipMinigame(id:)` for
+        // the separate (and unconditional) penalty for giving up early.
+        #expect(session.penalizedPlayerIDs == [last])
         #expect(session.allPlayersFinishedMinigame)
+    }
+
+    @Test("recordMinigameFinish penalizes nobody until the group is actually complete")
+    func recordMinigameFinishPenalizesNobodyBeforeGroupCompletes() {
+        let session = GameSession()
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
+        session.upsert(Player(id: third, nickname: "Rosalind", avatar: .yellow, isReady: true))
+        session.beginMinigame()
+
+        session.recordMinigameFinish(id: first)
+        session.recordMinigameFinish(id: second)
+        #expect(session.penalizedPlayerIDs.isEmpty)
+
+        session.recordMinigameFinish(id: third)
+        #expect(session.penalizedPlayerIDs == [third])
+    }
+
+    @Test("recordMinigameFinish sets minigameFirstFinishAt only on the first arrival")
+    func recordMinigameFinishSetsFirstFinishOnce() {
+        let session = GameSession()
+        let first = UUID()
+        let second = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginMinigame()
+        #expect(session.minigameFirstFinishAt == nil)
+
+        session.recordMinigameFinish(id: first)
+        let firstFinishAt = session.minigameFirstFinishAt
+        #expect(firstFinishAt != nil)
+
+        session.recordMinigameFinish(id: second)
+        #expect(session.minigameFirstFinishAt == firstFinishAt)
+    }
+
+    @Test("skipMinigame counts as an arrival and marks the player penalized")
+    func skipMinigameMarksArrivalAndPenalty() {
+        let session = GameSession()
+        let first = UUID()
+        let stuck = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: stuck, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginMinigame()
+        session.recordMinigameFinish(id: first)
+
+        session.skipMinigame(id: stuck)
+
+        #expect(session.minigameFinishOrder == [first, stuck])
+        #expect(session.penalizedPlayerIDs == [stuck])
+        #expect(session.allPlayersFinishedMinigame)
+    }
+
+    @Test("skipMinigame ignores unknown players and duplicates")
+    func skipMinigameIgnoresInvalid() {
+        let session = GameSession()
+        let id = UUID()
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
+        session.beginMinigame()
+
+        session.skipMinigame(id: UUID()) // unknown player
+        #expect(session.minigameFinishOrder.isEmpty)
+        #expect(session.penalizedPlayerIDs.isEmpty)
+
+        session.skipMinigame(id: id)
+        session.skipMinigame(id: id) // duplicate
+        #expect(session.minigameFinishOrder == [id])
+        #expect(session.penalizedPlayerIDs == [id])
     }
 
     @Test("beginRoomSelection reuses the minigame arrival order as turn order")
@@ -301,8 +376,8 @@ struct GameSessionTests {
         session.upsert(Player(id: penalized, nickname: "Grace", avatar: .green, isReady: true))
         session.beginMinigame()
         session.recordMinigameFinish(id: first)
-        session.recordMinigameFinish(id: penalized) // last arrival is penalized
-        #expect(session.penalizedPlayerID == penalized)
+        session.skipMinigame(id: penalized) // gave up on the minigame: penalized
+        #expect(session.penalizedPlayerIDs == [penalized])
 
         session.beginRoomSelection()
         #expect(session.currentTurnPlayerID == first)
@@ -311,6 +386,30 @@ struct GameSessionTests {
 
         #expect(session.currentTurnPlayerID == penalized)
         #expect(session.recordRoomChoice(playerID: penalized, room: .dormitory) == .hiddenByPenalty)
+    }
+
+    @Test("recordRoomChoice rejects a room a previous player already visited this round")
+    func recordRoomChoiceRejectsAlreadyTakenRoom() {
+        let session = GameSession()
+        let first = UUID()
+        let second = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginMinigame()
+        session.recordMinigameFinish(id: first)
+        session.recordMinigameFinish(id: second)
+        session.beginRoomSelection()
+
+        _ = session.recordRoomChoice(playerID: first, room: .gym)
+        session.advanceRoomTurn()
+
+        // `second`'s turn now — trying the room `first` already took must be
+        // rejected (not just re-picking on your own already-resolved turn,
+        // which `recordRoomChoiceIgnoresRepeatWithinTurn` above covers).
+        let result = session.recordRoomChoice(playerID: second, room: .gym)
+
+        #expect(result == nil)
+        #expect(session.roomVisitLog.count == 1)
     }
 
     @Test("advanceRoomTurn moves to the next player and completes after the last")
@@ -431,13 +530,32 @@ struct GameSessionTests {
         #expect(session.phase == .notebook)
     }
 
+    @Test("removePlayer of the current voter yields to notEnoughPlayers when that drops below the minimum")
+    func removePlayerOfVoterBelowMinimumEndsGame() {
+        let session = GameSession()
+        let voter = UUID()
+        session.upsert(Player(id: voter, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: UUID(), nickname: "Grace", avatar: .green, isReady: true))
+        session.phase = .notebook
+        _ = session.startVoting(playerID: voter)
+
+        session.removePlayer(id: voter)
+
+        // Only one player is left, below `minimumPlayerCount` — the
+        // voter-cleanup's provisional `.notebook` (see the test above) must
+        // be overridden by the too-few-players check that runs after it,
+        // not the other way around.
+        #expect(session.votingPlayerID == nil)
+        #expect(session.phase == .notEnoughPlayers)
+    }
+
     // MARK: - Round loop + Black-out event
 
-    @Test("blackoutRoundNumber is always round 3")
-    func blackoutRoundNumberIsAlwaysThree() {
-        for _ in 0..<10 {
+    @Test("blackoutRoundNumber is always between round 3 and round 5")
+    func blackoutRoundNumberIsAlwaysThreeToFive() {
+        for _ in 0..<20 {
             let session = GameSession()
-            #expect(session.blackoutRoundNumber == 3)
+            #expect((3...5).contains(session.blackoutRoundNumber))
         }
     }
 
@@ -452,6 +570,45 @@ struct GameSessionTests {
 
         #expect(session.roundNumber == 2)
         #expect(session.phase == .minigame)
+    }
+
+    @Test("beginNextRound clears lastAccusation so a wrong guess doesn't linger into the next round")
+    func beginNextRoundClearsLastAccusation() {
+        let session = GameSession()
+        let voter = UUID()
+        session.upsert(Player(id: voter, nickname: "Ada", avatar: .blue, isReady: true))
+        session.phase = .notebook
+        _ = session.startVoting(playerID: voter)
+        let wrongSuspect = Suspects.all.first { $0.id != session.culpritID }!.id
+        session.castAccusation(playerID: voter, suspectID: wrongSuspect)
+        #expect(session.lastAccusation != nil)
+
+        session.beginNextRound()
+
+        #expect(session.lastAccusation == nil)
+    }
+
+    @Test("beginNextRound ends the game in defeat once maxRoundNumber is reached without a correct accusation")
+    func beginNextRoundEndsInDefeatAtMaxRounds() {
+        let session = GameSession()
+        session.roundNumber = GameSession.maxRoundNumber
+
+        session.beginNextRound()
+
+        #expect(session.phase == .defeat)
+        #expect(session.roundNumber == GameSession.maxRoundNumber)
+    }
+
+    @Test("beginNextRound still advances normally one round before maxRoundNumber")
+    func beginNextRoundAdvancesUpToMaxRounds() {
+        let session = GameSession()
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
+        session.roundNumber = GameSession.maxRoundNumber - 1
+
+        session.beginNextRound()
+
+        #expect(session.roundNumber == GameSession.maxRoundNumber)
+        #expect(session.phase != .defeat)
     }
 
     @Test("beginNextRound routes into the black-out reveal on the designated round")
@@ -544,6 +701,51 @@ struct GameSessionTests {
         #expect(!session.blackoutTaskFinishedPlayerIDs.contains(id))
     }
 
+    @Test("skipBlackoutTask force-completes a single player for an independent task, without any penalty")
+    func skipBlackoutTaskCompletesOnePlayerNoPenalty() {
+        let session = makeSession(withBlackoutMinigame: .overvoltageWhack)
+        let first = UUID()
+        let stuck = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: stuck, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginBlackoutTask()
+        session.recordBlackoutTaskFinish(id: first)
+
+        session.skipBlackoutTask(id: stuck)
+
+        #expect(Set(session.blackoutTaskFinishedPlayerIDs) == Set([first, stuck]))
+        #expect(session.allPlayersFinishedBlackoutTask)
+        // Unlike skipMinigame, the Black-out task carries no clue-visibility
+        // stake, so skipping it never penalizes anyone.
+        #expect(session.penalizedPlayerIDs.isEmpty)
+    }
+
+    @Test("skipBlackoutTask force-completes the whole team at once for the cooperative lightRegulator task")
+    func skipBlackoutTaskCompletesWholeTeamForLightRegulator() {
+        let session = makeSession(withBlackoutMinigame: .lightRegulator)
+        let first = UUID()
+        let stuck = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: stuck, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginBlackoutTask()
+
+        session.skipBlackoutTask(id: stuck)
+
+        #expect(session.allPlayersFinishedBlackoutTask)
+        #expect(session.penalizedPlayerIDs.isEmpty)
+    }
+
+    @Test("skipBlackoutTask ignores unknown players")
+    func skipBlackoutTaskIgnoresUnknownPlayer() {
+        let session = makeSession(withBlackoutMinigame: .overvoltageWhack)
+        session.upsert(Player(id: UUID(), nickname: "Ada", avatar: .blue, isReady: true))
+        session.beginBlackoutTask()
+
+        session.skipBlackoutTask(id: UUID())
+
+        #expect(session.blackoutTaskFinishedPlayerIDs.isEmpty)
+    }
+
     @Test("blackoutMinigame is always one of the known minigames")
     func blackoutMinigameIsAKnownCase() {
         for _ in 0..<50 {
@@ -597,6 +799,31 @@ struct GameSessionTests {
         #expect(session.blackoutLightAverage == 0)
     }
 
+    @Test("updateBlackoutLightValue is ignored outside the blackoutTask phase")
+    func updateBlackoutLightValueIgnoredOutsidePhase() {
+        let session = makeSession(withBlackoutMinigame: .lightRegulator)
+        let id = UUID()
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
+        // Never entered .blackoutTask — still .lobby.
+
+        session.updateBlackoutLightValue(playerID: id, value: 50)
+
+        #expect(session.blackoutLightAverage == 0)
+        #expect(!session.allPlayersFinishedBlackoutTask)
+    }
+
+    @Test("updateBlackoutLightValue is ignored for the wrong Black-out minigame")
+    func updateBlackoutLightValueIgnoredForWrongMinigame() {
+        let session = makeSession(withBlackoutMinigame: .overvoltageWhack)
+        let id = UUID()
+        session.upsert(Player(id: id, nickname: "Ada", avatar: .blue, isReady: true))
+        session.beginBlackoutTask()
+
+        session.updateBlackoutLightValue(playerID: id, value: 50)
+
+        #expect(session.blackoutLightAverage == 0)
+    }
+
     @Test("removePlayer cascades out of the light regulator average")
     func removePlayerCascadesLightRegulatorState() {
         let session = makeSession(withBlackoutMinigame: .lightRegulator)
@@ -628,7 +855,7 @@ struct GameSessionTests {
     // MARK: - End-to-end: every Black-out minigame reaches completion
 
     @Test(
-        "the Black-out round always lands on round 3, and every minigame lets the game continue once finished",
+        "the Black-out round always lands on its designated round, and every minigame lets the game continue once finished",
         arguments: BlackoutMinigame.allCases
     )
     func blackoutMinigameCompletesAndTheGameContinues(minigame: BlackoutMinigame) {
@@ -638,10 +865,11 @@ struct GameSessionTests {
         session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
         session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
 
-        // Round 2 -> 3 always triggers the Black-out narrative beat.
-        session.roundNumber = 2
+        // The round right before the designated one always triggers the
+        // Black-out narrative beat.
+        session.roundNumber = session.blackoutRoundNumber - 1
         session.beginNextRound()
-        #expect(session.roundNumber == 3)
+        #expect(session.roundNumber == session.blackoutRoundNumber)
         #expect(session.isCurrentRoundBlackout)
         #expect(session.phase == .blackoutReveal)
 
@@ -673,7 +901,7 @@ struct GameSessionTests {
         // finished: the normal round loop picks back up.
         session.beginMinigame()
         #expect(session.phase == .minigame)
-        #expect(session.roundNumber == 3)
+        #expect(session.roundNumber == session.blackoutRoundNumber)
     }
 
     // MARK: - Too few players mid-game

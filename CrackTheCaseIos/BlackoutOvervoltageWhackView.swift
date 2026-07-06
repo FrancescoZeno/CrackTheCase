@@ -8,7 +8,7 @@ struct BlackoutOvervoltageWhackView: View {
 
     private let totalSparksRequired = 10
     private let totalTimeAllowed: Double = 20
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 5)
 
     @State private var sparksCleared = 0
     @State private var timeRemaining: Double = 20
@@ -21,16 +21,22 @@ struct BlackoutOvervoltageWhackView: View {
     @State private var showWhiteFlash = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("SHORT CIRCUIT PANEL")
+        ZStack {
+            Color.phoenixBackground.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                    Text("SHORT CIRCUIT PANEL")
                 .font(.system(size: 22, weight: .black, design: .rounded))
                 .foregroundStyle(.phoenixGold)
                 .tracking(1)
 
+            MinigameInstructionText(text: "Tap each spark as soon as it lights up, before it fades away.")
+                .padding(.horizontal, 30)
+
             HStack(spacing: 24) {
                 VStack(spacing: 4) {
                     Text("SPARKS CLEARED")
-                        .font(.caption.bold())
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
                     Text("\(sparksCleared) / \(totalSparksRequired)")
                         .font(.system(size: 24, weight: .bold, design: .monospaced))
@@ -38,7 +44,7 @@ struct BlackoutOvervoltageWhackView: View {
                 }
                 VStack(spacing: 4) {
                     Text("TIME LEFT")
-                        .font(.caption.bold())
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
                     Text(String(format: "%.1fs", timeRemaining))
                         .font(.system(size: 24, weight: .bold, design: .monospaced))
@@ -51,11 +57,11 @@ struct BlackoutOvervoltageWhackView: View {
                 .padding(.horizontal, 30)
 
             LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(0..<9, id: \.self) { index in
+                ForEach(0..<10, id: \.self) { index in
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.phoenixCard)
-                            .frame(height: 84)
+                            .frame(height: 70)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(Color.white.opacity(0.08), lineWidth: 1)
@@ -69,8 +75,8 @@ struct BlackoutOvervoltageWhackView: View {
                                     .resizable()
                                     .scaledToFit()
                                     .frame(width: 40, height: 40)
-                                    .foregroundStyle(.yellow)
-                                    .shadow(color: .yellow, radius: 8)
+                                    .foregroundStyle(.phoenixGold)
+                                    .shadow(color: .phoenixGold, radius: 8)
                             }
                             .buttonStyle(.plain)
                         }
@@ -79,9 +85,9 @@ struct BlackoutOvervoltageWhackView: View {
             }
             .padding(.horizontal, 20)
 
-            Spacer()
+            }
+            .padding(.vertical, 10)
         }
-        .padding(.top, 20)
         .overlay {
             if showWhiteFlash {
                 Color.white.ignoresSafeArea()
@@ -97,7 +103,7 @@ struct BlackoutOvervoltageWhackView: View {
                             .foregroundStyle(isWon ? .phoenixGreen : .phoenixDestructive)
 
                         Text(isWon ? "You saved the fuses in time." : "The fuses blew. Try again.")
-                            .font(.body)
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundStyle(.phoenixMuted)
 
                         if !isWon {
@@ -156,7 +162,7 @@ struct BlackoutOvervoltageWhackView: View {
     }
 
     private func handleSparkTap() {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Haptics.impact(.medium)
         sparksCleared += 1
         if sparksCleared >= totalSparksRequired {
             endGame(won: true)
@@ -175,7 +181,7 @@ struct BlackoutOvervoltageWhackView: View {
             withAnimation(.easeInOut(duration: 0.1)) {
                 showWhiteFlash = true
             }
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            Haptics.impact(.heavy)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -184,7 +190,7 @@ struct BlackoutOvervoltageWhackView: View {
                 onComplete()
             }
         } else {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.notify(.error)
             withAnimation(.easeInOut) {
                 isGameOver = true
             }

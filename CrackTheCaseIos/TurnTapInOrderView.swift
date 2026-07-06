@@ -29,7 +29,7 @@ struct TurnTapInOrderView: View {
             VStack(spacing: 15) {
                 HStack(spacing: 20) {
                     Text(isCompleted ? "SEQUENCE CORRECT" : (isFailed ? "SYSTEM LOCKED" : "Tap: \(currentTarget)"))
-                        .font(.system(size: 24, weight: .black, design: .monospaced))
+                        .font(.system(size: 24, weight: .black, design: .rounded))
                         .foregroundStyle(isCompleted ? .phoenixGreen : (isFailed ? .phoenixDestructive : .phoenixGold))
                         .id(isFailed)
 
@@ -50,6 +50,11 @@ struct TurnTapInOrderView: View {
                 }
                 .padding(.horizontal, 40)
                 .padding(.top, 10)
+
+                if !isCompleted && !isFailed {
+                    MinigameInstructionText(text: "Tap the numbers in order, from 1 to 9, before time runs out.")
+                        .padding(.horizontal, 40)
+                }
 
                 GeometryReader { geometry in
                     ZStack {
@@ -87,12 +92,12 @@ struct TurnTapInOrderView: View {
                                             .foregroundStyle(.phoenixDestructive)
 
                                         Text("TIME'S UP")
-                                            .font(.system(size: 26, weight: .bold, design: .monospaced))
+                                            .font(.system(size: 26, weight: .bold, design: .rounded))
                                             .foregroundStyle(.white)
 
                                         Button(action: resetGame) {
                                             Text("TRY AGAIN")
-                                                .font(.system(size: 20, weight: .black, design: .monospaced))
+                                                .font(.system(size: 20, weight: .black, design: .rounded))
                                                 .foregroundStyle(.phoenixDestructive)
                                                 .padding(.horizontal, 30)
                                                 .padding(.vertical, 15)
@@ -123,7 +128,7 @@ struct TurnTapInOrderView: View {
                     isFailed = true
                     timeRemaining = 0
                 }
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                Haptics.notify(.error)
             }
         }
     }
@@ -132,7 +137,7 @@ struct TurnTapInOrderView: View {
         guard !isCompleted && !isFailed else { return }
 
         if number == currentTarget {
-            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            Haptics.impact(.rigid)
 
             if currentTarget == 9 {
                 withAnimation(.easeInOut(duration: 0.5)) {
@@ -145,7 +150,7 @@ struct TurnTapInOrderView: View {
                 }
             }
         } else if number > currentTarget {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.notify(.error)
             withAnimation(.easeInOut(duration: 0.3)) {
                 isFailed = true
             }

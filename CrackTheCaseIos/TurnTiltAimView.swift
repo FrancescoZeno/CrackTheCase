@@ -17,9 +17,9 @@ struct TurnTiltAimView: View {
             VStack(spacing: 20) {
                 HStack {
                     Text(engine.state == .completed ? "ALIGNMENT COMPLETE" : "Keep the reticle centered")
-                        .font(.system(size: 20, weight: .black, design: .monospaced))
-                        .foregroundStyle(engine.state == .completed ? .phoenixGreen : .cyan)
-                        .glowEffect(color: engine.state == .completed ? .phoenixGreen : .cyan, radius: engine.state == .completed ? 15 : 8)
+                        .font(.system(size: 20, weight: .black, design: .rounded))
+                        .foregroundStyle(engine.state == .completed ? .phoenixGreen : .phoenixGold)
+                        .glowEffect(color: engine.state == .completed ? .phoenixGreen : .phoenixGold, radius: engine.state == .completed ? 15 : 8)
 
                     Spacer()
 
@@ -33,6 +33,11 @@ struct TurnTiltAimView: View {
                 }
                 .padding(.horizontal, 40)
                 .padding(.top, 10)
+
+                if engine.state != .completed {
+                    MinigameInstructionText(text: "Tilt your phone (don't touch the screen) to move the reticle onto the red target for 4 seconds.")
+                        .padding(.horizontal, 40)
+                }
 
                 ZStack {
                     if engine.state != .countdown {
@@ -57,7 +62,7 @@ struct TurnTiltAimView: View {
                         Text("\(engine.countdownNumber)")
                             .font(.system(size: 150, weight: .heavy, design: .rounded))
                             .foregroundStyle(.white)
-                            .shadow(color: .cyan.opacity(0.8), radius: 20)
+                            .shadow(color: .phoenixGold.opacity(0.8), radius: 20)
                             .animation(.spring(response: 0.3, dampingFraction: 0.5), value: engine.countdownNumber)
                     }
                 }
@@ -80,9 +85,9 @@ private struct TiltAimReticle: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(isAligned ? Color.phoenixGreen : Color.cyan, lineWidth: 2)
+                .stroke(isAligned ? Color.phoenixGreen : Color.phoenixGold, lineWidth: 2)
                 .frame(width: 30, height: 30)
-                .glowEffect(color: isAligned ? .phoenixGreen : .cyan, radius: isAligned ? 10 : 5)
+                .glowEffect(color: isAligned ? .phoenixGreen : .phoenixGold, radius: isAligned ? 10 : 5)
 
             Rectangle().frame(width: 2, height: 12).offset(y: -22)
             Rectangle().frame(width: 2, height: 12).offset(y: 22)
@@ -91,7 +96,7 @@ private struct TiltAimReticle: View {
 
             Circle().frame(width: 4, height: 4)
         }
-        .foregroundStyle(isAligned ? Color.phoenixGreen : Color.cyan)
+        .foregroundStyle(isAligned ? Color.phoenixGreen : Color.phoenixGold)
     }
 }
 
@@ -152,12 +157,12 @@ private final class TiltAimEngine: ObservableObject {
 
             if self.countdownNumber > 1 {
                 self.countdownNumber -= 1
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptics.impact(.light)
             } else {
                 self.countdownTimer?.invalidate()
                 self.state = .playing
                 self.startTime = Date()
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
                 self.startGameLogic()
             }
         }
@@ -227,13 +232,13 @@ private final class TiltAimEngine: ObservableObject {
             progress += (1.0 / 60.0)
 
             if Int(progress * 60) % 15 == 0 {
-                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                Haptics.impact(.soft)
             }
 
             if progress >= 4.0 {
                 state = .completed
                 stopGame()
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Haptics.notify(.success)
                 onWin?()
             }
         } else {

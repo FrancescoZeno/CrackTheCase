@@ -24,7 +24,7 @@ struct TurnShakeChargeView: View {
                             .font(.system(size: 36, weight: .bold, design: .rounded))
                             .foregroundStyle(.phoenixGold)
                         Text("Wait for the others to finish…")
-                            .font(.subheadline)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(.white.opacity(0.7))
                     }
                 } else {
@@ -34,9 +34,7 @@ struct TurnShakeChargeView: View {
                             .foregroundStyle(.phoenixGold)
                             .tracking(3)
 
-                        Text("Shake your phone to charge the battery!")
-                            .font(.headline)
-                            .foregroundStyle(.phoenixGold.opacity(0.7))
+                        MinigameInstructionText(text: "Shake your phone hard until the battery bar fills up to 100%.")
                     }
                 }
 
@@ -84,7 +82,7 @@ private struct ShakeChargeBatteryView: View {
             }
 
             Text("\(Int(progress * 100))%")
-                .font(.system(.body, design: .monospaced)).bold()
+                .font(.system(size: 17, weight: .bold, design: .monospaced))
                 .foregroundStyle(.phoenixGold)
         }
     }
@@ -98,7 +96,7 @@ private struct ShakeChargeBatteryView: View {
         switch index {
         case 0, 1: return .phoenixDestructive
         case 2, 3, 4: return .phoenixGold
-        case 5, 6, 7: return .yellow
+        case 5, 6, 7: return .caseYellow
         default: return .phoenixGreen
         }
     }

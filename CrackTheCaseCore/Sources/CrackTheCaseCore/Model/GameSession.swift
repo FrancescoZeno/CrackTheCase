@@ -20,8 +20,16 @@ public final class GameSession {
     public let joinCode: String
 
     /// Arrival order of players who finished the turn-order minigame,
-    /// oldest finish first. Reset each time `beginMinigame()` runs.
+    /// oldest finish first. Reset each time `beginMinigame()` runs. Includes
+    /// players who were skipped/timed-out via `skipMinigame(id:)`, so
+    /// `allPlayersFinishedMinigame` can still become true without every
+    /// player actually solving their minigame.
     public var minigameFinishOrder: [UUID] = []
+    /// When the first player finished this round's minigame, `nil` before
+    /// that and reset by `beginMinigame()`. The host uses this as the anchor
+    /// for the skip-grace-period deadline (see `minigameSkipGracePeriod`)
+    /// and broadcasts it so every phone can render the same countdown.
+    public var minigameFirstFinishAt: Date?
     /// Which of the 13 turn-order minigames is being played this round,
     /// re-rolled at random every time `beginMinigame()` runs.
     public var turnMinigame: TurnMinigame = TurnMinigame.allCases.randomElement()!
@@ -31,9 +39,28 @@ public final class GameSession {
     /// "Play Again" games too, only resetting once every minigame has come
     /// up at least once since the last reset.
     private var usedTurnMinigames: Set<TurnMinigame> = []
-    /// The player penalized for finishing the minigame last, set only once
-    /// everyone has finished. Consumed during room exploration.
-    public var penalizedPlayerID: UUID?
+    /// Every player penalized this round: whoever's arrival completes the
+    /// group — i.e. finishes dead last, whether by actually solving the
+    /// minigame or by giving up/timing out (see `recordMinigameFinish(id:)`
+    /// and `skipMinigame(id:)`) — plus anyone else who gave up or timed out
+    /// even earlier. Consumed during room exploration: any of these players
+    /// finds their room's clue hidden. More than one player can be
+    /// penalized in the same round (e.g. two people skip before the last
+    /// legitimate finisher arrives).
+    public var penalizedPlayerIDs: Set<UUID> = []
+
+    /// How long after the first player finishes the turn-order minigame the
+    /// host waits before auto-skipping everyone still stuck — see
+    /// `HostConnectivityService`'s deadline task. Also drives the on-screen
+    /// countdown on both the phone and the tvOS board (as a plain
+    /// `TimeInterval` rather than `Duration` so both the `Task.sleep` side
+    /// and the `Date` arithmetic driving the countdown UI can use it as-is).
+    public static let minigameSkipGracePeriod: TimeInterval = 15
+    /// Same idea as `minigameSkipGracePeriod`, but for the Black-out
+    /// emergency task — anchored to `blackoutTaskStartedAt` instead of a
+    /// first-finish moment, since that task doesn't have a "first arrival"
+    /// beat of its own.
+    public static let blackoutSkipGracePeriod: TimeInterval = 25
 
     /// Turn order for room exploration, copied from `minigameFinishOrder`
     /// when `beginRoomSelection()` runs.
@@ -47,25 +74,23 @@ public final class GameSession {
     /// Which room currently holds each of the 3 clues. Starts at the fixed
     /// placement below; the Black-out event moves 2 of the 3 entries to new
     /// rooms mid-game via `reshuffleClueRoomsForBlackout()`.
-    public var roundClueAssignments: [RoomID: Clue] = GameSession.defaultClueAssignments
+    public var roundClueAssignments: [RoomID: Clue] = [:]
 
-    /// The fixed starting room for each of the 3 clues, before any
-    /// Black-out reshuffling — also what `resetToLobby()` restores for a
-    /// fresh "Play Again" game.
-    private static let defaultClueAssignments: [RoomID: Clue] = [
-        .cafeteria: Clue(
-            title: "A strange recipe",
-            text: "Tucked in the pages of the cafeteria recipe book is a note with a recipe no one has ever seen… and a suspicious stain."
-        ),
-        .dormitory: Clue(
-            title: "A note on the pillow",
-            text: "A folded note on a pillow: \"See you at midnight, like always. — E.\""
-        ),
-        .headmasterOffice: Clue(
-            title: "A cancelled appointment",
-            text: "On the headmaster's calendar, a line has been angrily crossed out: last night's 9 PM appointment."
-        ),
-    ]
+    /// Generates the starting 3 clues for a game based on the culprit's traits.
+    /// The clues are placed in the same 3 fixed rooms to start, matching the
+    /// original pacing before Black-out reshuffles them.
+    private static func generateClues(for culpritID: String) -> [RoomID: Clue] {
+        guard let suspect = Suspects.all.first(where: { $0.id == culpritID }) else { return [:] }
+        let traits = Array(suspect.traits)
+        var assignments: [RoomID: Clue] = [:]
+        let startingRooms: [RoomID] = [.cafeteria, .dormitory, .headmasterOffice]
+        for (i, trait) in traits.enumerated() {
+            if i < startingRooms.count {
+                assignments[startingRooms[i]] = Clue(title: trait.displayName, text: trait.genericDescription)
+            }
+        }
+        return assignments
+    }
 
     /// The actual culprit, chosen at random once per game session (and
     /// re-rolled by `resetToLobby()` for a fresh "Play Again" game). Never
@@ -81,10 +106,15 @@ public final class GameSession {
 
     /// 1-indexed count of the current Minigame → Rooms → Notebook cycle.
     public var roundNumber = 1
-    /// The round on which the Black-out event triggers. Always round 3 —
-    /// every game gets exactly one Black-out, on the same round, so the
-    /// pacing is consistent from playthrough to playthrough.
-    public let blackoutRoundNumber = 3
+    /// The last round investigators get: if round `maxRoundNumber` finishes
+    /// its notebook phase with nobody having accused the actual culprit,
+    /// `beginNextRound()` ends the game in `.defeat` instead of starting
+    /// another round.
+    public static let maxRoundNumber = 10
+    /// The round on which the Black-out event triggers. Randomized 3-5 at
+    /// session creation — every game gets exactly one Black-out, but players
+    /// can't predict which round it'll land on.
+    public let blackoutRoundNumber = Int.random(in: 3...5)
     /// When the current Black-out task began, for the on-screen (scenic
     /// only) stopwatch. `nil` outside `.blackoutTask`.
     public var blackoutTaskStartedAt: Date?
@@ -111,6 +141,9 @@ public final class GameSession {
     /// match the same threshold instead of guessing its own.
     public static let blackoutLightTolerance: Double = 2.0
 
+    /// Players who have already made a wrong accusation this round.
+    public var failedAccusationPlayerIDs: Set<UUID> = []
+
     /// True while the current round is the one designated for the Black-out
     /// event.
     public var isCurrentRoundBlackout: Bool { roundNumber == blackoutRoundNumber }
@@ -123,6 +156,7 @@ public final class GameSession {
         self.phase = phase
         self.joinCode = String(format: "%04d", Int.random(in: 0..<10_000))
         self.culpritID = Suspects.all.randomElement()!.id
+        self.roundClueAssignments = GameSession.generateClues(for: self.culpritID)
     }
 
     /// True once every connected player has pressed "Ready".
@@ -152,7 +186,7 @@ public final class GameSession {
     /// - `turnOrder`/`currentTurnIndex`, so a departed player's turn doesn't
     ///   stall room exploration forever waiting for a choice that will never
     ///   come — the next player's turn simply takes its place.
-    /// - `penalizedPlayerID`, if it was pointing at them.
+    /// - `penalizedPlayerIDs`, removing them if present.
     public func removePlayer(id: UUID) {
         players.removeAll { $0.id == id }
         minigameFinishOrder.removeAll { $0 == id }
@@ -164,9 +198,7 @@ public final class GameSession {
             }
         }
 
-        if penalizedPlayerID == id {
-            penalizedPlayerID = nil
-        }
+        penalizedPlayerIDs.remove(id)
 
         if votingPlayerID == id {
             // Don't leave everyone else locked out waiting for a vote that
@@ -208,11 +240,12 @@ public final class GameSession {
 
         roundNumber = 1
         minigameFinishOrder = []
-        penalizedPlayerID = nil
+        minigameFirstFinishAt = nil
+        penalizedPlayerIDs = []
         turnOrder = []
         currentTurnIndex = 0
         roomVisitLog = []
-        roundClueAssignments = Self.defaultClueAssignments
+        roundClueAssignments = GameSession.generateClues(for: culpritID)
 
         votingPlayerID = nil
         lastAccusation = nil
@@ -225,6 +258,7 @@ public final class GameSession {
         blackoutMinigame = BlackoutMinigame.allCases.randomElement()!
 
         culpritID = Suspects.all.randomElement()!.id
+        roundClueAssignments = GameSession.generateClues(for: culpritID)
     }
 
     /// Picks an avatar for a newly-joining player: one not already used by a
@@ -250,7 +284,8 @@ public final class GameSession {
     public func beginMinigame() {
         phase = .minigame
         minigameFinishOrder = []
-        penalizedPlayerID = nil
+        minigameFirstFinishAt = nil
+        penalizedPlayerIDs = []
 
         var remaining = Set(TurnMinigame.allCases).subtracting(usedTurnMinigames)
         if remaining.isEmpty {
@@ -262,18 +297,50 @@ public final class GameSession {
         turnMinigame = picked
     }
 
-    /// Records a player's arrival, ignoring duplicates or unknown IDs.
-    /// Sets `penalizedPlayerID` to the last arrival once everyone has finished.
+    /// Records a player's arrival, ignoring duplicates or unknown IDs. Sets
+    /// `minigameFirstFinishAt` the first time anyone finishes, so the host
+    /// can anchor its skip-grace-period deadline (see
+    /// `HostConnectivityService`) and every phone can render a matching
+    /// countdown. The arrival that completes the group — whoever finishes
+    /// dead last — is always penalized, on top of anyone penalized earlier
+    /// via `skipMinigame(id:)`: finishing last (even by actually solving it
+    /// yourself, just slower than everyone else) still costs the round's
+    /// clue, exactly like before the skip-grace-period timer existed.
     public func recordMinigameFinish(id: UUID) {
         guard phase == .minigame,
               players.contains(where: { $0.id == id }),
               !minigameFinishOrder.contains(id)
         else { return }
 
+        if minigameFirstFinishAt == nil {
+            minigameFirstFinishAt = Date()
+        }
         minigameFinishOrder.append(id)
         if minigameFinishOrder.count == players.count {
-            penalizedPlayerID = minigameFinishOrder.last
+            penalizedPlayerIDs.insert(id)
         }
+    }
+
+    /// Records that a player gave up on (or ran out the clock on) this
+    /// round's turn-order minigame instead of solving it — either because
+    /// they pressed "Skip" themselves or because the host's skip-grace-period
+    /// timer ran out on them. Counts as an arrival for the purposes of
+    /// `allPlayersFinishedMinigame`/turn order, and — like every arrival —
+    /// is penalized unconditionally rather than only when it happens to be
+    /// the one completing the group (see `recordMinigameFinish`'s
+    /// last-arrival rule): giving up is always worse than finishing late.
+    /// Ignores duplicates or unknown IDs, same as `recordMinigameFinish`.
+    public func skipMinigame(id: UUID) {
+        guard phase == .minigame,
+              players.contains(where: { $0.id == id }),
+              !minigameFinishOrder.contains(id)
+        else { return }
+
+        if minigameFirstFinishAt == nil {
+            minigameFirstFinishAt = Date()
+        }
+        minigameFinishOrder.append(id)
+        penalizedPlayerIDs.insert(id)
     }
 
     // MARK: - Room exploration (Phase 3)
@@ -317,11 +384,12 @@ public final class GameSession {
     /// Does **not** advance the turn — see `advanceRoomTurn()`.
     public func recordRoomChoice(playerID: UUID, room: RoomID) -> RoomFinding? {
         guard playerID == currentTurnPlayerID, currentRoomChoice == nil else { return nil }
+        guard !roomVisitLog.contains(where: { $0.roomID == room }) else { return nil }
 
         roomVisitLog.append(RoomVisit(playerID: playerID, roomID: room))
 
         guard let clue = roundClueAssignments[room] else { return .empty }
-        guard playerID != penalizedPlayerID else { return .hiddenByPenalty }
+        guard !penalizedPlayerIDs.contains(playerID) else { return .hiddenByPenalty }
         return .clue(clue)
     }
 
@@ -339,9 +407,21 @@ public final class GameSession {
     /// Called from the TV's "Next round" button once the notebook phase
     /// is done being reviewed. Advances to the next round, routing into the
     /// Black-out narrative beat if this is the designated round, or straight
-    /// back into the normal Minigame → Rooms → Notebook cycle otherwise.
+    /// back into the normal Minigame → Rooms → Notebook cycle otherwise —
+    /// unless round `maxRoundNumber` has just finished without a correct
+    /// accusation, in which case the game ends in `.defeat` instead of
+    /// starting another round. Clears `lastAccusation` either way, so a
+    /// wrong guess from the round that's ending doesn't linger on screen
+    /// into the next one.
     public func beginNextRound() {
+        lastAccusation = nil
+        guard roundNumber < Self.maxRoundNumber else {
+            phase = .defeat
+            return
+        }
+
         roundNumber += 1
+        failedAccusationPlayerIDs = []
         if isCurrentRoundBlackout {
             reshuffleClueRoomsForBlackout()
             phase = .blackoutReveal
@@ -393,6 +473,26 @@ public final class GameSession {
         blackoutTaskFinishedPlayerIDs.append(id)
     }
 
+    /// Forces this player's Black-out task to completion — either because
+    /// they pressed "Skip" themselves or because the host's skip-grace-period
+    /// timer ran out on them (see `HostConnectivityService`). Unlike
+    /// `skipMinigame(id:)`, this carries **no** penalty: the Black-out task
+    /// is a shared emergency beat, not a competitive race, so there's no
+    /// clue-visibility stake to dock. For `lightRegulator` specifically —
+    /// which succeeds or fails for the whole team at once rather than per
+    /// player — this force-completes every currently connected player,
+    /// mirroring what `updateBlackoutLightValue(playerID:value:)` does when
+    /// the team average lands on target.
+    public func skipBlackoutTask(id: UUID) {
+        guard phase == .blackoutTask, players.contains(where: { $0.id == id }) else { return }
+
+        if blackoutMinigame == .lightRegulator {
+            blackoutTaskFinishedPlayerIDs = players.map(\.id)
+        } else if !blackoutTaskFinishedPlayerIDs.contains(id) {
+            blackoutTaskFinishedPlayerIDs.append(id)
+        }
+    }
+
     /// True once every connected player has finished the Black-out task.
     public var allPlayersFinishedBlackoutTask: Bool {
         phase == .blackoutTask && !players.isEmpty && blackoutTaskFinishedPlayerIDs.count == players.count
@@ -434,7 +534,7 @@ public final class GameSession {
     /// reachable from the notebook. Returns whether the vote was allowed to
     /// start.
     public func startVoting(playerID: UUID) -> Bool {
-        guard phase == .notebook, votingPlayerID == nil else { return false }
+        guard phase == .notebook, votingPlayerID == nil, !failedAccusationPlayerIDs.contains(playerID) else { return false }
         votingPlayerID = playerID
         phase = .voting
         return true
@@ -452,6 +552,9 @@ public final class GameSession {
         let correct = suspectID == culpritID
         lastAccusation = Accusation(playerID: playerID, suspectID: suspectID, wasCorrect: correct)
         votingPlayerID = nil
+        if !correct {
+            failedAccusationPlayerIDs.insert(playerID)
+        }
         phase = correct ? .victory : .notebook
         return correct
     }

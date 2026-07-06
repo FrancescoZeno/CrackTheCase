@@ -22,9 +22,10 @@ struct TurnNumberMemoryView: View {
             HStack(spacing: 20) {
                 VStack(spacing: 15) {
                     Text("Memory Numbers")
-                        .font(.title)
-                        .bold()
-                        .foregroundStyle(.white)
+                        .font(.system(size: 24, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
+
+                    MinigameInstructionText(text: "Memorize the 5 numbers, then type them back in the same order.")
 
                     Spacer()
 
@@ -44,7 +45,7 @@ struct TurnNumberMemoryView: View {
                         } else if isGameActive {
                             VStack(spacing: 5) {
                                 Text("Enter the sequence:")
-                                    .font(.subheadline)
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                                     .foregroundStyle(.phoenixMuted)
 
                                 HStack(spacing: 10) {
@@ -60,8 +61,7 @@ struct TurnNumberMemoryView: View {
                             }
                         } else {
                             Text(feedbackMessage)
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(feedbackColor)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -74,7 +74,7 @@ struct TurnNumberMemoryView: View {
                     if !isGameActive && !hasWon {
                         Button(action: startGame) {
                             Text(feedbackMessage == "Press to START" ? "START" : "Try Again")
-                                .font(.headline)
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -157,8 +157,7 @@ private struct NumberMemoryKeyboard: View {
                             buttonPressed(label)
                         } label: {
                             Text(label)
-                                .font(.title3)
-                                .fontWeight(.medium)
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
                                 .foregroundStyle(textColor(for: label))
                                 .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 45)
                                 .background(buttonColor(for: label))

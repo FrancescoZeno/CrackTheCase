@@ -18,13 +18,11 @@ struct TurnValidCardSwipeView: View {
 
             VStack {
                 HStack {
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("KEY SCAN")
                             .font(.system(size: 20, weight: .black, design: .monospaced))
                             .foregroundStyle(.phoenixGold)
-                        Text("← DISCARD EXPIRED | SAVE VALID →")
-                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.phoenixMuted)
+                        MinigameInstructionText(text: "Swipe right on VALID keys, left on EXPIRED ones — 10 in a row.")
                     }
                     Spacer()
 
@@ -81,10 +79,12 @@ struct TurnValidCardSwipeView: View {
             if engine.phase == .starting {
                 ZStack {
                     Color.black.opacity(0.6).ignoresSafeArea()
-                    VStack {
+                    VStack(spacing: 16) {
                         Text("SYSTEM PREP")
                             .font(.system(size: 24, weight: .bold, design: .monospaced))
                             .foregroundStyle(.phoenixGold)
+                        MinigameInstructionText(text: "Swipe right on VALID keys, left on EXPIRED ones — 10 in a row.")
+                            .padding(.horizontal, 40)
                         Text("\(engine.startupCountdown)")
                             .font(.system(size: 130, weight: .heavy, design: .rounded))
                             .foregroundStyle(.white)
@@ -157,11 +157,7 @@ private final class SwipeEngine: ObservableObject {
     private var gameTimer: Timer?
     private var gameStartTime: Date?
 
-    private let hapticImpact = UIImpactFeedbackGenerator(style: .rigid)
-    private let hapticNotify = UINotificationFeedbackGenerator()
-
     func startSetup() {
-        hapticImpact.prepare()
         generateKeys()
 
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -169,7 +165,7 @@ private final class SwipeEngine: ObservableObject {
 
             if self.startupCountdown > 1 {
                 self.startupCountdown -= 1
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptics.impact(.light)
             } else {
                 self.countdownTimer?.invalidate()
                 self.startGame()
@@ -193,7 +189,7 @@ private final class SwipeEngine: ObservableObject {
     private func startGame() {
         phase = .playing
         gameStartTime = Date()
-        hapticNotify.notificationOccurred(.success)
+        Haptics.notify(.success)
 
         gameTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             guard let self, let start = self.gameStartTime else { return }
@@ -215,7 +211,7 @@ private final class SwipeEngine: ObservableObject {
         let isValidKey = !currentKey.isExpired
 
         if (isRightSwipe && isValidKey) || (!isRightSwipe && !isValidKey) {
-            hapticImpact.impactOccurred()
+            Haptics.impact(.rigid)
 
             withAnimation(.easeOut(duration: 0.25)) {
                 topCardOffset = CGSize(width: isRightSwipe ? 800 : -800, height: 0)
@@ -232,12 +228,12 @@ private final class SwipeEngine: ObservableObject {
                 if self.keysStack.isEmpty {
                     self.phase = .finished
                     self.gameTimer?.invalidate()
-                    self.hapticNotify.notificationOccurred(.success)
+                    Haptics.notify(.success)
                     self.onWin?()
                 }
             }
         } else {
-            hapticNotify.notificationOccurred(.error)
+            Haptics.notify(.error)
 
             withAnimation(.easeInOut(duration: 0.1)) {
                 self.flashError = true

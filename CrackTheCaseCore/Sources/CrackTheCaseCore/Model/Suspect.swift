@@ -59,27 +59,7 @@ public struct Suspect: Sendable, Equatable, Identifiable {
     /// back to the trait's generic description if this suspect doesn't have
     /// it (shouldn't normally be looked up in that case, but kept total).
     public func description(for trait: EvidenceTrait) -> String {
-        guard traits.contains(trait) else { return trait.genericDescription }
-        switch (color, trait) {
-        case (.blue, .blood): return "Blood stains on the jacket, shirt, and hands."
-        case (.blue, .untiedLaces): return "The shoelaces are untied."
-        case (.green, .untiedLaces): return "The shoelaces are untied."
-        case (.green, .mud): return "Mud is caked onto the clothing."
-        case (.green, .tears): return "The clothing is torn in several places."
-        case (.yellow, .untiedLaces): return "The shoelaces are untied."
-        case (.yellow, .bruises): return "Bruises are visible on the skin."
-        case (.yellow, .tears): return "The clothing is torn in several places."
-        case (.red, .untiedLaces): return "The shoelaces are untied."
-        case (.red, .blood): return "Blood is present, but not confined to any one spot."
-        case (.red, .bruises): return "Bruises are visible on the skin."
-        case (.purple, .blood): return "Blood stains are visible on the clothing."
-        case (.purple, .mud): return "Mud is caked onto the clothing."
-        case (.purple, .tears): return "The clothing is torn in several places."
-        case (.white, .blood): return "Blood stains are visible on the clothing."
-        case (.white, .bruises): return "Bruises are visible on the skin."
-        case (.white, .tears): return "The clothing is torn in several places."
-        default: return trait.genericDescription
-        }
+        return trait.genericDescription
     }
 }
 
@@ -87,55 +67,55 @@ public enum Suspects {
     public static let all: [Suspect] = [
         Suspect(
             id: "headmaster",
-            name: "Aldric Grey",
-            role: "The Headmaster",
-            detail: "Angrily crossed out a 9 PM appointment from last night. Says he was in his office all night.",
-            icon: "graduationcap.fill",
+            name: "Blue",
+            role: "Suspect",
+            detail: "A suspect in the case.",
+            icon: "person.fill",
             color: .blue,
             traits: [.untiedLaces, .blood]
         ),
         Suspect(
             id: "cook",
-            name: "Priya Nair",
-            role: "The Cook",
-            detail: "The cafeteria recipe book hides a note nobody has seen before. Swears she never left the kitchen after dinner.",
-            icon: "fork.knife",
+            name: "Green",
+            role: "Suspect",
+            detail: "A suspect in the case.",
+            icon: "person.fill",
             color: .green,
             traits: [.untiedLaces, .mud, .tears]
         ),
         Suspect(
             id: "dorm-head",
-            name: "Jonah Fitch",
-            role: "Dorm Head",
-            detail: "Someone left him a note on his pillow with a midnight meeting time. Claims he fell asleep early.",
-            icon: "bed.double.fill",
+            name: "Yellow",
+            role: "Suspect",
+            detail: "A suspect in the case.",
+            icon: "person.fill",
             color: .yellow,
             traits: [.untiedLaces, .bruises, .tears]
         ),
         Suspect(
             id: "librarian",
-            name: "Odalys Rook",
-            role: "The Librarian",
-            detail: "Knows every hidden corner of Phoenix Academy. Was in the library late, alone.",
-            icon: "books.vertical.fill",
+            name: "Red",
+            role: "Suspect",
+            detail: "A suspect in the case.",
+            icon: "person.fill",
             color: .red,
             traits: [.untiedLaces, .blood, .bruises]
         ),
         Suspect(
             id: "caretaker",
-            name: "Marcus Vale",
-            role: "The Caretaker",
-            detail: "Has the keys to every room in the school. Nobody has seen him since 10 PM.",
-            icon: "wrench.and.screwdriver.fill",
+            name: "Purple",
+            role: "Suspect",
+            detail: "A suspect in the case.",
+            icon: "person.fill",
             color: .purple,
             traits: [.blood, .mud, .tears]
         ),
         Suspect(
             id: "science-teacher",
-            name: "Elena Cross",
-            role: "Science Teacher",
-            detail: "Her signature, \"E.\", shows up often in notes students pass around. Denies writing anything last night.",
-            icon: "flask.fill",
+            name: "White",
+            role: "Suspect",
+            detail: "A suspect in the case.",
+            icon: "person.fill",
             color: .white,
             traits: [.blood, .bruises, .tears]
         ),

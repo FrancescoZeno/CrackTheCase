@@ -27,4 +27,16 @@ public enum Avatar: String, Codable, CaseIterable, Sendable, Identifiable {
         case .white: return "White"
         }
     }
+
+    /// Detective-themed emoji associated with the avatar.
+    public var emoji: String {
+        switch self {
+        case .blue: return "🔍"
+        case .green: return "☝️"
+        case .yellow: return "👣"
+        case .red: return "🔦"
+        case .purple: return "👁️"
+        case .white: return "📓"
+        }
+    }
 }

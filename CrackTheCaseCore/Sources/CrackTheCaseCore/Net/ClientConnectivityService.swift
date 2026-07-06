@@ -18,7 +18,11 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     @MainActor public private(set) var players: [Player] = []
     @MainActor public private(set) var phase: GamePhase = .connecting
     @MainActor public private(set) var minigameFinishOrder: [UUID] = []
-    @MainActor public private(set) var penalizedPlayerID: UUID?
+    /// When the first player finished this round's turn-order minigame —
+    /// drives the shared skip-grace-period countdown shown on this player's
+    /// screen (see `GameSession.minigameSkipGracePeriod`).
+    @MainActor public private(set) var minigameFirstFinishAt: Date?
+    @MainActor public private(set) var penalizedPlayerIDs: Set<UUID> = []
     @MainActor public private(set) var turnOrder: [UUID] = []
     @MainActor public private(set) var currentTurnIndex: Int = 0
     @MainActor public private(set) var roomVisitLog: [RoomVisit] = []
@@ -33,6 +37,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     @MainActor public private(set) var votingPlayerID: UUID?
     /// The most recently resolved vote, if any.
     @MainActor public private(set) var lastAccusation: Accusation?
+    @MainActor public private(set) var failedAccusationPlayerIDs: Set<UUID> = []
     /// 1-indexed count of the current Minigame → Rooms → Notebook cycle.
     @MainActor public private(set) var roundNumber: Int = 1
     /// True while the current round is the Black-out round — voting is
@@ -213,15 +218,14 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
         joinAuthorization = .timedOut
     }
 
-    /// Sends the initial join message with the player's chosen nickname —
-    /// only valid once `joinAuthorization == .accepted`. The host assigns
-    /// the avatar.
-    public func join(nickname: String) {
-        send(.join(id: localPlayerID, nickname: nickname))
+    /// Sent once the join code has been accepted, with the player's
+    /// persisted identity and chosen nickname. The host assigns the avatar if not provided.
+    public func join(nickname: String, avatar: Avatar?) {
+        send(.join(id: localPlayerID, nickname: nickname, avatar: avatar))
     }
 
-    public func updateProfile(nickname: String) {
-        send(.updateProfile(id: localPlayerID, nickname: nickname))
+    public func updateProfile(nickname: String, avatar: Avatar?) {
+        send(.updateProfile(id: localPlayerID, nickname: nickname, avatar: avatar))
     }
 
     public func setReady(_ isReady: Bool) {
@@ -231,6 +235,18 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     /// Sends that this player has finished the turn-order minigame.
     public func finishMinigame() {
         send(.finishMinigame(id: localPlayerID))
+    }
+
+    /// Gives up on this round's turn-order minigame instead of retrying —
+    /// sent either from the player pressing "Skip" themselves or from the
+    /// on-screen skip-grace-period countdown reaching zero. Counts as an
+    /// arrival for turn-order purposes, but the host marks this player
+    /// penalized (their room's clue will be hidden this round) — see
+    /// `GameSession.skipMinigame(id:)`. The host also auto-skips on its own
+    /// after the same grace period, so this is a courtesy to unblock sooner,
+    /// not the only way it happens.
+    public func skipMinigame() {
+        send(.skipMinigame(id: localPlayerID))
     }
 
     /// True once this player's `finishMinigame()` has been acknowledged by
@@ -274,6 +290,14 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
         send(.finishBlackoutTask(id: localPlayerID))
     }
 
+    /// Gives up on the Black-out emergency task instead of retrying — sent
+    /// either from the player pressing "Skip" themselves or from the
+    /// on-screen skip-grace-period countdown reaching zero. Carries no
+    /// penalty (unlike `skipMinigame()`) — see `GameSession.skipBlackoutTask(id:)`.
+    public func skipBlackoutTask() {
+        send(.skipBlackoutTask(id: localPlayerID))
+    }
+
     /// Sends this player's regulator slider value for the `lightRegulator`
     /// black-out task.
     public func updateBlackoutLightValue(_ value: Double) {
@@ -307,9 +331,9 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     private func handle(_ message: GameMessage) {
         switch message {
         case .sessionState(
-            let players, let phase, let minigameFinishOrder, let penalizedPlayerID,
+            let players, let phase, let minigameFinishOrder, let minigameFirstFinishAt, let penalizedPlayerIDs,
             let turnOrder, let currentTurnIndex, let roomVisitLog,
-            let votingPlayerID, let lastAccusation,
+            let votingPlayerID, let lastAccusation, let failedAccusationPlayerIDs,
             let roundNumber, let isCurrentRoundBlackout,
             let blackoutTaskStartedAt, let blackoutTaskFinishedPlayerIDs,
             let blackoutMinigame, let blackoutLightTarget, let blackoutLightAverage,
@@ -318,12 +342,14 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
             self.players = players
             self.phase = phase
             self.minigameFinishOrder = minigameFinishOrder
-            self.penalizedPlayerID = penalizedPlayerID
+            self.minigameFirstFinishAt = minigameFirstFinishAt
+            self.penalizedPlayerIDs = penalizedPlayerIDs
             self.turnOrder = turnOrder
             self.currentTurnIndex = currentTurnIndex
             self.roomVisitLog = roomVisitLog
             self.votingPlayerID = votingPlayerID
             self.lastAccusation = lastAccusation
+            self.failedAccusationPlayerIDs = failedAccusationPlayerIDs
             self.roundNumber = roundNumber
             self.isCurrentRoundBlackout = isCurrentRoundBlackout
             self.blackoutTaskStartedAt = blackoutTaskStartedAt
@@ -351,7 +377,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
             connectionState = .disconnected
             mcSession.disconnect()
 
-        case .requestToJoin, .join, .updateProfile, .setReady, .finishMinigame, .chooseRoom, .startVoting, .castAccusation, .finishBlackoutTask, .updateBlackoutLightValue:
+        case .requestToJoin, .join, .updateProfile, .setReady, .finishMinigame, .skipMinigame, .chooseRoom, .startVoting, .castAccusation, .finishBlackoutTask, .skipBlackoutTask, .updateBlackoutLightValue:
             // Client-authored messages; the host never sends these back.
             break
         }
@@ -361,7 +387,9 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
 extension ClientConnectivityService: MCSessionDelegate {
     public nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor in
-            guard peerID == self.hostPeerID else { return }
+            // MultipeerConnectivity can sometimes vend different MCPeerID instances 
+            // for the same remote peer. Compare display names to be safe.
+            guard peerID.displayName == self.hostPeerID?.displayName else { return }
             
             switch state {
             case .connected:

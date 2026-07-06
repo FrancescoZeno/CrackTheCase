@@ -29,15 +29,13 @@ struct TurnSwipeCardPaceView: View {
             HStack(spacing: 30) {
                 VStack(spacing: 25) {
                     Text("SECURE ID SCANNER")
-                        .font(.title)
-                        .bold()
-                        .foregroundStyle(.white)
+                        .font(.system(size: 24, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
                         .multilineTextAlignment(.center)
 
                     VStack(spacing: 12) {
                         Text(feedbackMessage)
-                            .font(.title3)
-                            .fontWeight(.bold)
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundStyle(feedbackColor)
                             .padding()
                             .frame(maxWidth: .infinity)
@@ -48,12 +46,7 @@ struct TurnSwipeCardPaceView: View {
                                     .stroke(feedbackColor.opacity(0.5), lineWidth: 2)
                             )
 
-                        if state == .idle {
-                            Text("Drag the card at a steady pace.\nReverse motion will trigger an alarm.")
-                                .font(.subheadline)
-                                .foregroundStyle(.phoenixDestructive.opacity(0.8))
-                                .multilineTextAlignment(.center)
-                        }
+                        MinigameInstructionText(text: "Drag the card all the way across at a steady pace — not too fast, not too slow, and never backwards.")
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -77,8 +70,7 @@ struct TurnSwipeCardPaceView: View {
                                 .overlay(
                                     HStack {
                                         Text("» » » » »")
-                                            .font(.title2)
-                                            .fontWeight(.black)
+                                            .font(.system(size: 22, weight: .black, design: .rounded))
                                             .foregroundStyle(.white.opacity(0.3))
                                             .padding(.leading, cardWidth + 10)
                                         Spacer()
@@ -173,7 +165,7 @@ struct TurnSwipeCardPaceView: View {
         state = .success
         feedbackMessage = "ACCEPTED. ACCESS GRANTED."
         feedbackColor = .phoenixGreen
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Haptics.notify(.success)
         onComplete()
     }
 
@@ -181,7 +173,7 @@ struct TurnSwipeCardPaceView: View {
         state = .failed
         feedbackMessage = reason
         feedbackColor = .phoenixDestructive
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        Haptics.notify(.error)
         cardOffset = 0
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
@@ -224,11 +216,11 @@ private struct SwipeCardFace: View {
 
                 HStack(spacing: 12) {
                     Circle()
-                        .fill(Color.blue.opacity(0.2))
+                        .fill(Color.caseBlue.opacity(0.2))
                         .frame(width: 40, height: 40)
                         .overlay(
                             Image(systemName: "person.fill")
-                                .foregroundColor(.blue.opacity(0.5))
+                                .foregroundColor(.caseBlue.opacity(0.5))
                         )
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -243,7 +235,7 @@ private struct SwipeCardFace: View {
 
             if state == .failed {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.red.opacity(0.3))
+                    .fill(Color.phoenixDestructive.opacity(0.3))
             }
         }
     }

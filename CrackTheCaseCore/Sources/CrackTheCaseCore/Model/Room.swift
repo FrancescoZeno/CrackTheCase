@@ -25,10 +25,10 @@ public enum RoomID: String, Codable, Sendable, CaseIterable, Identifiable {
         case .library: return "Library"
         case .scienceLab: return "Science Lab"
         case .gym: return "Gym"
-        case .musicRoom: return "Music Room"
-        case .headmasterOffice: return "Headmaster's Office"
-        case .garden: return "Garden"
-        case .theater: return "Theater"
+        case .musicRoom: return "Computer Lab"
+        case .headmasterOffice: return "Front Office"
+        case .garden: return "Study Hall"
+        case .theater: return "Auditorium"
         }
     }
 
@@ -40,9 +40,9 @@ public enum RoomID: String, Codable, Sendable, CaseIterable, Identifiable {
         case .library: return "books.vertical.fill"
         case .scienceLab: return "flask.fill"
         case .gym: return "figure.run"
-        case .musicRoom: return "music.note"
+        case .musicRoom: return "desktopcomputer"
         case .headmasterOffice: return "briefcase.fill"
-        case .garden: return "leaf.fill"
+        case .garden: return "book.fill"
         case .theater: return "theatermasks.fill"
         }
     }

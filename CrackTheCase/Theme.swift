@@ -64,13 +64,12 @@ extension ShapeStyle where Self == Color {
     static var phoenixDestructive: Color { .phoenixDestructive }
 }
 
-/// A plain color-filled circle with a player's initial — the sober
+/// A plain color-filled circle showing a player's avatar emoji — the sober
 /// replacement for the old SF-Symbol animal icons. Reused at every spot a
 /// player's identity is shown; callers add their own stroke/overlay on top
 /// for context (readiness ring, room highlight, etc.).
 struct AvatarBadge: View {
     let avatar: Avatar
-    let initial: String
     var diameter: CGFloat = 56
 
     var body: some View {
@@ -78,20 +77,19 @@ struct AvatarBadge: View {
             .fill(avatar.color)
             .frame(width: diameter, height: diameter)
             .overlay(
-                Text(initial)
-                    .font(.system(size: diameter * 0.42, weight: .heavy, design: .rounded))
-                    .foregroundStyle(avatar.foreground)
+                Text(avatar.emoji)
+                    .font(.system(size: diameter * 0.5))
             )
+            .accessibilityLabel("\(avatar.displayName) avatar")
     }
 
-    init(avatar: Avatar, initial: String, diameter: CGFloat = 56) {
+    init(avatar: Avatar, diameter: CGFloat = 56) {
         self.avatar = avatar
-        self.initial = initial.isEmpty ? "?" : initial
         self.diameter = diameter
     }
 
     init(player: Player, diameter: CGFloat = 56) {
-        self.init(avatar: player.avatar, initial: String(player.nickname.prefix(1)).uppercased(), diameter: diameter)
+        self.init(avatar: player.avatar, diameter: diameter)
     }
 }
 

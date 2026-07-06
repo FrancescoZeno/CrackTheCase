@@ -7,27 +7,30 @@ struct GameMessageTests {
     @Test("join round-trips through encode/decode")
     func joinRoundTrip() throws {
         let id = UUID()
-        let decoded = try GameMessage.decode(try GameMessage.join(id: id, nickname: "Ada").encoded())
-
-        guard case .join(let decodedID, let decodedNickname) = decoded else {
+        let decoded = try GameMessage.decode(try GameMessage.join(id: id, nickname: "Ada", avatar: .blue).encoded())
+        
+        guard case .join(let decodedID, let decodedNickname, let decodedAvatar) = decoded else {
             Issue.record("Expected .join, got \(decoded)")
             return
         }
+        
         #expect(decodedID == id)
         #expect(decodedNickname == "Ada")
+        #expect(decodedAvatar == .blue)
     }
 
     @Test("updateProfile round-trips through encode/decode")
     func updateProfileRoundTrip() throws {
         let id = UUID()
-        let decoded = try GameMessage.decode(try GameMessage.updateProfile(id: id, nickname: "Grace").encoded())
+        let decoded = try GameMessage.decode(try GameMessage.updateProfile(id: id, nickname: "Ada", avatar: .blue).encoded())
 
-        guard case .updateProfile(let decodedID, let decodedNickname) = decoded else {
+        guard case .updateProfile(let decodedID, let decodedNickname, let decodedAvatar) = decoded else {
             Issue.record("Expected .updateProfile, got \(decoded)")
             return
         }
         #expect(decodedID == id)
-        #expect(decodedNickname == "Grace")
+        #expect(decodedNickname == "Ada")
+        #expect(decodedAvatar == .blue)
     }
 
     @Test("requestToJoin and joinResult round-trip")
@@ -65,12 +68,14 @@ struct GameMessageTests {
             players: players,
             phase: .voting,
             minigameFinishOrder: finishOrder,
-            penalizedPlayerID: players[0].id,
+            minigameFirstFinishAt: blackoutTaskStartedAt,
+            penalizedPlayerIDs: [players[0].id],
             turnOrder: finishOrder,
             currentTurnIndex: 1,
             roomVisitLog: visits,
             votingPlayerID: players[0].id,
             lastAccusation: accusation,
+            failedAccusationPlayerIDs: [players[0].id],
             roundNumber: 2,
             isCurrentRoundBlackout: true,
             blackoutTaskStartedAt: blackoutTaskStartedAt,
@@ -84,9 +89,9 @@ struct GameMessageTests {
         let decoded = try GameMessage.decode(try message.encoded())
 
         guard case .sessionState(
-            let decodedPlayers, let decodedPhase, let decodedOrder, let decodedPenalized,
+            let decodedPlayers, let decodedPhase, let decodedOrder, let decodedFirstFinishAt, let decodedPenalized,
             let decodedTurnOrder, let decodedTurnIndex, let decodedVisits,
-            let decodedVotingPlayerID, let decodedAccusation,
+            let decodedVotingPlayerID, let decodedAccusation, let decodedFailedAccusationPlayerIDs,
             let decodedRoundNumber, let decodedIsBlackout,
             let decodedBlackoutStartedAt, let decodedBlackoutFinished,
             let decodedBlackoutMinigame, let decodedBlackoutLightTarget, let decodedBlackoutLightAverage,
@@ -98,12 +103,14 @@ struct GameMessageTests {
         #expect(decodedPlayers == players)
         #expect(decodedPhase == .voting)
         #expect(decodedOrder == finishOrder)
-        #expect(decodedPenalized == players[0].id)
+        #expect(decodedFirstFinishAt == blackoutTaskStartedAt)
+        #expect(decodedPenalized == [players[0].id])
         #expect(decodedTurnOrder == finishOrder)
         #expect(decodedTurnIndex == 1)
         #expect(decodedVisits == visits)
         #expect(decodedVotingPlayerID == players[0].id)
         #expect(decodedAccusation == accusation)
+        #expect(decodedFailedAccusationPlayerIDs == [players[0].id])
         #expect(decodedRoundNumber == 2)
         #expect(decodedIsBlackout)
         #expect(decodedBlackoutStartedAt == blackoutTaskStartedAt)
@@ -134,6 +141,30 @@ struct GameMessageTests {
 
         guard case .finishBlackoutTask(let decodedID) = decoded else {
             Issue.record("Expected .finishBlackoutTask, got \(decoded)")
+            return
+        }
+        #expect(decodedID == id)
+    }
+
+    @Test("skipMinigame round-trips")
+    func skipMinigameRoundTrip() throws {
+        let id = UUID()
+        let decoded = try GameMessage.decode(try GameMessage.skipMinigame(id: id).encoded())
+
+        guard case .skipMinigame(let decodedID) = decoded else {
+            Issue.record("Expected .skipMinigame, got \(decoded)")
+            return
+        }
+        #expect(decodedID == id)
+    }
+
+    @Test("skipBlackoutTask round-trips")
+    func skipBlackoutTaskRoundTrip() throws {
+        let id = UUID()
+        let decoded = try GameMessage.decode(try GameMessage.skipBlackoutTask(id: id).encoded())
+
+        guard case .skipBlackoutTask(let decodedID) = decoded else {
+            Issue.record("Expected .skipBlackoutTask, got \(decoded)")
             return
         }
         #expect(decodedID == id)

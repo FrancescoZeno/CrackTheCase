@@ -15,14 +15,20 @@ public enum GameMessage: Codable, Sendable, Equatable {
     /// client send `.join`.
     case requestToJoin(id: UUID, code: String)
     /// Sent once the join code has been accepted, with the player's
-    /// persisted identity and chosen nickname. The host assigns the avatar.
-    case join(id: UUID, nickname: String)
-    /// Sent whenever the player edits their nickname in the lobby.
-    case updateProfile(id: UUID, nickname: String)
+    /// persisted identity and chosen nickname. The host assigns the avatar if not provided.
+    case join(id: UUID, nickname: String, avatar: Avatar?)
+    /// Sent whenever the player edits their nickname or avatar in the lobby.
+    case updateProfile(id: UUID, nickname: String, avatar: Avatar?)
     /// Sent when the player toggles the "Ready" button.
     case setReady(id: UUID, isReady: Bool)
     /// Sent when the player finishes their turn-order minigame.
     case finishMinigame(id: UUID)
+    /// Sent when the player gives up on this round's turn-order minigame
+    /// (or the client-side skip-grace-period countdown reaches zero),
+    /// instead of retrying until they solve it. Counts as an arrival for
+    /// turn-order purposes, but marks the player penalized — see
+    /// `GameSession.skipMinigame(id:)`.
+    case skipMinigame(id: UUID)
     /// Sent when the player, on their turn, chooses a room to explore.
     case chooseRoom(id: UUID, room: RoomID)
     /// Sent when the player presses the red "Vote" button from the notebook.
@@ -31,6 +37,11 @@ public enum GameMessage: Codable, Sendable, Equatable {
     case castAccusation(id: UUID, suspectID: String)
     /// Sent when the player finishes the black-out emergency task.
     case finishBlackoutTask(id: UUID)
+    /// Sent when the player gives up on the black-out emergency task (or the
+    /// client-side skip-grace-period countdown reaches zero). Unlike
+    /// `skipMinigame`, this carries no penalty — see
+    /// `GameSession.skipBlackoutTask(id:)`.
+    case skipBlackoutTask(id: UUID)
     /// Sent whenever the player moves their regulator slider during the
     /// `lightRegulator` black-out task.
     case updateBlackoutLightValue(id: UUID, value: Double)
@@ -50,12 +61,14 @@ public enum GameMessage: Codable, Sendable, Equatable {
         players: [Player],
         phase: GamePhase,
         minigameFinishOrder: [UUID],
-        penalizedPlayerID: UUID?,
+        minigameFirstFinishAt: Date?,
+        penalizedPlayerIDs: Set<UUID>,
         turnOrder: [UUID],
         currentTurnIndex: Int,
         roomVisitLog: [RoomVisit],
         votingPlayerID: UUID?,
         lastAccusation: Accusation?,
+        failedAccusationPlayerIDs: Set<UUID>,
         roundNumber: Int,
         isCurrentRoundBlackout: Bool,
         blackoutTaskStartedAt: Date?,

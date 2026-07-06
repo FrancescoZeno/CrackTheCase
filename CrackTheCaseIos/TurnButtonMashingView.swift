@@ -51,9 +51,12 @@ struct TurnButtonMashingView: View {
                             Color.black.opacity(0.7).ignoresSafeArea()
                             VStack(spacing: 10) {
                                 Text("PREPARING SYSTEM")
-                                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
                                     .foregroundStyle(.phoenixGold)
                                     .tracking(4)
+
+                                MinigameInstructionText(text: "Tap both TAP buttons as fast as you can to push the indicator to the top.")
+                                    .padding(.horizontal, 30)
 
                                 Text("\(engine.startupCountdown)")
                                     .font(.system(size: 120, weight: .heavy, design: .rounded))
@@ -67,7 +70,7 @@ struct TurnButtonMashingView: View {
                             Color.black.opacity(0.85).ignoresSafeArea()
                             VStack(spacing: 20) {
                                 Text("SYSTEM UNLOCKED")
-                                    .font(.system(size: 28, weight: .black, design: .monospaced))
+                                    .font(.system(size: 28, weight: .black, design: .rounded))
                                     .foregroundStyle(.phoenixGold)
                                     .glowEffect(color: .phoenixGold, radius: 15)
 
@@ -125,21 +128,16 @@ private final class MashingEngine: ObservableObject {
     private var gameLoopTimer: Timer?
     private var startTime: Date?
 
-    private let tapHaptic = UIImpactFeedbackGenerator(style: .rigid)
-    private let successHaptic = UINotificationFeedbackGenerator()
-
     /// Called once when the lever reaches the top of its track.
     var onWin: (() -> Void)?
 
     func startSetup() {
-        tapHaptic.prepare()
-
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
 
             if self.startupCountdown > 1 {
                 self.startupCountdown -= 1
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptics.impact(.light)
             } else {
                 self.countdownTimer?.invalidate()
                 self.startGame()
@@ -150,7 +148,7 @@ private final class MashingEngine: ObservableObject {
     private func startGame() {
         phase = .playing
         startTime = Date()
-        successHaptic.notificationOccurred(.success)
+        Haptics.notify(.success)
 
         gameLoopTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             self?.updatePhysics()
@@ -182,7 +180,7 @@ private final class MashingEngine: ObservableObject {
     func registerTap() {
         guard phase == .playing else { return }
 
-        tapHaptic.impactOccurred()
+        Haptics.impact(.rigid)
 
         withAnimation(.easeOut(duration: 0.05)) {
             leverOffset = max(-leverLimit, leverOffset - step)
@@ -191,7 +189,7 @@ private final class MashingEngine: ObservableObject {
         if leverOffset <= -leverLimit {
             phase = .finished
             gameLoopTimer?.invalidate()
-            successHaptic.notificationOccurred(.success)
+            Haptics.notify(.success)
             onWin?()
         }
     }
@@ -217,7 +215,7 @@ private struct MashingArcadeButtonStyle: ButtonStyle {
                     )
                     .overlay(
                         Text(title)
-                            .font(.system(size: 26, weight: .black, design: .monospaced))
+                            .font(.system(size: 26, weight: .black, design: .rounded))
                             .foregroundStyle(isDisabled ? Color.phoenixMuted : (isPressed ? .white : activeColor))
                             .glowEffect(color: isPressed && !isDisabled ? activeColor : .clear, radius: 8)
                     )

@@ -40,7 +40,7 @@ struct BlackoutLightRegulatorView: View {
             HStack(spacing: 16) {
                 VStack(spacing: 4) {
                     Text("TARGET")
-                        .font(.caption.bold())
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
                     Text("\(Int(client.blackoutLightTarget))%")
                         .font(.system(size: 34, weight: .black, design: .monospaced))
@@ -52,7 +52,7 @@ struct BlackoutLightRegulatorView: View {
 
                 VStack(spacing: 4) {
                     Text("TEAM AVERAGE")
-                        .font(.caption.bold())
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
                     Text("\(Int(client.blackoutLightAverage))%")
                         .font(.system(size: 34, weight: .black, design: .monospaced))
@@ -68,7 +68,7 @@ struct BlackoutLightRegulatorView: View {
 
             VStack(spacing: 16) {
                 Text("YOUR REGULATOR")
-                    .font(.subheadline.bold())
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(.phoenixGold)
 
                 Text("\(Int(sliderValue))%")

@@ -28,21 +28,23 @@ struct TurnMagneticRingsView: View {
             HStack(spacing: 20) {
                 VStack(spacing: 20) {
                     Text("Magnetic Cracking")
-                        .font(.title)
-                        .bold()
-                        .foregroundStyle(.white)
+                        .font(.system(size: 24, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
                         .multilineTextAlignment(.center)
 
                     VStack(spacing: 12) {
                         Text(isSolved ? "Firewall Bypassed!" : "Interference Detected")
-                            .font(.title3)
-                            .fontWeight(.semibold)
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
                             .foregroundStyle(isSolved ? .phoenixGreen : .phoenixGold)
 
-                        Text(isSolved ? "Data access granted." : "The magnetic fields are linked.\nRotating one ring affects the other.")
-                            .font(.subheadline)
-                            .foregroundStyle(.phoenixMuted)
-                            .multilineTextAlignment(.center)
+                        if isSolved {
+                            Text("Data access granted.")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.phoenixMuted)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            MinigameInstructionText(text: "Turn both rings until their marks line up at the top. Turning one moves the other too.")
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -85,7 +87,7 @@ struct TurnMagneticRingsView: View {
                                 .frame(width: outerRadius * 2 + 30, height: outerRadius * 2 + 30)
                             Circle()
                                 .trim(from: 0.0, to: 0.05)
-                                .stroke(isSolved ? Color.phoenixGreen : Color.cyan, style: StrokeStyle(lineWidth: 20, lineCap: .round))
+                                .stroke(isSolved ? Color.phoenixGreen : Color.phoenixGold, style: StrokeStyle(lineWidth: 20, lineCap: .round))
                                 .rotationEffect(.degrees(-99))
                         }
                         .frame(width: outerRadius * 2, height: outerRadius * 2)
@@ -95,7 +97,7 @@ struct TurnMagneticRingsView: View {
                             Circle().stroke(Color.white.opacity(0.15), lineWidth: 20)
                             Circle()
                                 .trim(from: 0.0, to: 0.05)
-                                .stroke(isSolved ? Color.phoenixGreen : Color.blue, style: StrokeStyle(lineWidth: 20, lineCap: .round))
+                                .stroke(isSolved ? Color.phoenixGreen : Color.caseBlue, style: StrokeStyle(lineWidth: 20, lineCap: .round))
                                 .rotationEffect(.degrees(-99))
                         }
                         .frame(width: innerRadius * 2, height: innerRadius * 2)
@@ -163,7 +165,7 @@ struct TurnMagneticRingsView: View {
                 innerAngle = 0
                 isSolved = true
             }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics.notify(.success)
             onComplete()
         }
     }

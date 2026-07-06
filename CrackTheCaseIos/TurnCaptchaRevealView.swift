@@ -26,12 +26,13 @@ struct TurnCaptchaRevealView: View {
             HStack(spacing: 30) {
                 VStack(spacing: 20) {
                     Text("CAPTCHA Decryption")
-                        .font(.title2)
-                        .bold()
-                        .foregroundStyle(.white)
+                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
+
+                    MinigameInstructionText(text: "Drag the eye to uncover the hidden letter, then tap that letter on the right.")
 
                     Text(feedbackMessage)
-                        .font(.subheadline)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(feedbackColor)
                         .multilineTextAlignment(.center)
                         .frame(height: 40)
@@ -93,7 +94,7 @@ struct TurnCaptchaRevealView: View {
 
                 VStack(spacing: 12) {
                     Text("Select")
-                        .font(.headline)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.phoenixMuted)
 
                     let columns = [GridItem(.flexible()), GridItem(.flexible())]
@@ -104,8 +105,7 @@ struct TurnCaptchaRevealView: View {
                                 checkAnswer(letter)
                             } label: {
                                 Text(letter)
-                                    .font(.title3)
-                                    .fontWeight(.bold)
+                                    .font(.system(size: 20, weight: .bold, design: .rounded))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity, minHeight: 45)
                                     .background(Color.white.opacity(0.08))

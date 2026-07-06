@@ -16,9 +16,17 @@ struct ContentView: View {
     @State private var host = HostConnectivityService()
     @State private var countdown: Int?
     @State private var showSettings = false
+    /// Lets anyone review the rules on demand from the lobby — the
+    /// automatic `rulesView` only ever shows once per Apple TV, on its
+    /// first game (see `hasSeenOnboarding`), and is otherwise unreachable.
+    @State private var showRules = false
     /// Local win-count leaderboard, persisted on this Apple TV across
     /// "Play Again" restarts and app relaunches — see `GameStats.swift`.
     @State private var gameStats = GameStats.load()
+    /// Confirmation gate for `quitToHomeButton` — ending a game here ends it
+    /// for every connected phone, not just the TV, so it's worth a beat of
+    /// friction before it fires.
+    @State private var showQuitConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
     /// Lets the intro video and rulebook be skipped automatically from the
     /// second game onward, per the design: both are only mandatory the
@@ -31,39 +39,53 @@ struct ContentView: View {
     /// enough for everyone to read their own private reveal, since every
     /// clue lands on every phone at the same moment (see
     /// `HostConnectivityService`'s batched `.chooseRoom` handling).
-    private static let clueReadingSeconds = 10
+    @State private var isAtHome = true
 
     var body: some View {
         ZStack {
-            background
+            Color.black.ignoresSafeArea()
 
-            switch host.session.phase {
-            case .connecting, .lobby:
-                lobbyView
-            case .starting:
-                startingView
-            case .introVideo:
-                introVideoView
-            case .rules:
-                rulesView
-            case .minigame:
-                minigameView
-            case .roomSelection:
-                roomBoardView
-            case .notebook:
-                notebookBoardView
-            case .voting:
-                votingBoardView
-            case .victory:
-                victoryView
-            case .blackoutReveal:
-                blackoutRevealView
-            case .blackoutTask:
-                blackoutTaskView
-            case .notEnoughPlayers:
-                notEnoughPlayersView
+            if isAtHome {
+                homeScreen
+            } else {
+                gameContent
             }
         }
+        // Attached once here, not inside `homeScreen`/`lobbyView`
+        // individually — `showSettings` is set from both screens' own
+        // Settings button, but a `.sheet` only presents while attached to a
+        // view that's actually on screen. Attaching it only inside
+        // `lobbyView` meant pressing Settings from the home screen set the
+        // flag with nothing there to present it; it would only pop up later,
+        // once `lobbyView` appeared and picked up the already-true state.
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
+        }
+    }
+    
+    @ViewBuilder
+    private var gameContent: some View {
+        ZStack {
+            background
+
+            gameContentPhaseView
+
+            // Positioned via nested Spacers, not `.overlay(alignment:)` —
+            // on this SDK, an `.overlay`-positioned button cluster left the
+            // tvOS focus engine unable to move focus off whichever button
+            // had it (arrow presses either did nothing or re-triggered the
+            // current button's own action instead of navigating). Plain
+            // ZStack/VStack/HStack siblings with Spacers, matching the
+            // structure of the (working) home screen buttons, sidesteps it.
+            VStack {
+                HStack {
+                    quitToHomeButton
+                    Spacer()
+                }
+                Spacer()
+            }
+        }
+        .background(quitConfirmationDialog)
         .animation(.easeInOut(duration: 0.3), value: host.session.phase)
         .onAppear {
             host.start()
@@ -111,7 +133,7 @@ struct ContentView: View {
             // anything.
             guard complete else { return }
             Task {
-                try? await Task.sleep(for: .seconds(Self.clueReadingSeconds))
+                try? await Task.sleep(for: .seconds(10))
                 guard host.session.isRoomSelectionComplete else { return }
                 host.beginNotebook()
             }
@@ -159,90 +181,261 @@ struct ContentView: View {
         }
     }
 
+    /// Just the phase → screen dispatch, split out from `gameContent` so the
+    /// latter's (unrelated) modifiers — `.overlay`, `.onChange`, etc. — stay
+    /// readable instead of trailing a giant `switch`.
+    @ViewBuilder
+    private var gameContentPhaseView: some View {
+        switch host.session.phase {
+        case .connecting, .lobby:
+            lobbyView
+        case .starting:
+            startingView
+        case .introVideo:
+            introVideoView
+        case .rules:
+            rulesView
+        case .minigame:
+            minigameView
+        case .roomSelection:
+            roomBoardView
+        case .notebook:
+            notebookBoardView
+        case .voting:
+            votingBoardView
+        case .victory:
+            victoryView
+        case .defeat:
+            defeatView
+        case .blackoutReveal:
+            blackoutRevealView
+        case .blackoutTask:
+            blackoutTaskView
+        case .notEnoughPlayers:
+            notEnoughPlayersView
+        }
+    }
+
+    /// Reachable from every connected phase, not just the lobby — the TV is
+    /// the shared board, so this is the only way to bail out of a stuck or
+    /// unwanted game without force-quitting the app. Sits top-leading so it
+    /// never collides with `lobbyView`'s own top-trailing rules/settings
+    /// cluster.
+    ///
+    /// Deliberately `.buttonStyle(.plain)`, not `.card` — on this SDK,
+    /// `.card` left the tvOS focus engine completely unable to move focus
+    /// off this button in any direction once it landed here (every other
+    /// on-screen control became unreachable). `.plain` plus an explicit
+    /// circular background gives the same contained look without that
+    /// engine bug.
+    @ViewBuilder
+    private var quitToHomeButton: some View {
+        Button {
+            showQuitConfirmation = true
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 44, height: 44)
+                .background(.black.opacity(0.35), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Quit game")
+        .padding(24)
+    }
+
+    private var quitConfirmationDialog: some View {
+        Color.clear
+            .confirmationDialog(
+                "End this game?",
+                isPresented: $showQuitConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("End Game for Everyone", role: .destructive) {
+                    host.stop()
+                    isAtHome = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This ends the game for every connected phone, not just this TV.")
+            }
+    }
+
+    private var homeScreen: some View {
+        ZStack {
+            // Placeholder for video background
+            LinearGradient(colors: [.black, .phoenixCard], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 40) {
+                Text("CRACK THE CASE")
+                    .font(.system(size: 80, weight: .black, design: .monospaced))
+                    .foregroundStyle(.phoenixGold)
+                    .shadow(color: .phoenixGold.opacity(0.3), radius: 20, y: 10)
+                
+                HStack(spacing: 80) {
+                    Button {
+                        isAtHome = false
+                    } label: {
+                        Text("NEW GAME")
+                            .font(.system(size: 32, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 60)
+                            .padding(.vertical, 20)
+                            .background(Color.phoenixGold)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Text("SETTINGS")
+                            .font(.system(size: 32, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 60)
+                            .padding(.vertical, 20)
+                            .background(Color.phoenixCard)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.2), lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private var background: some View {
-        LinearGradient(
-            colors: [.phoenixBackground, .phoenixGreenDark.opacity(0.35), .phoenixBackground],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        CinematicBackground()
     }
 
     private var lobbyView: some View {
-        VStack(spacing: 36) {
-            header
+        ZStack {
+            VStack(spacing: 36) {
+                header
 
-            if host.session.players.isEmpty {
-                emptyState
-            } else {
-                playerGrid
+                if host.session.players.isEmpty {
+                    emptyState
+                } else {
+                    playerGrid
+                }
+
+                if let countdown {
+                    countdownBadge(countdown)
+                }
             }
+            .padding(60)
 
-            if let countdown {
-                countdownBadge(countdown)
+            // Positioned via nested Spacers, not `.overlay(alignment:)` —
+            // see `gameContent`'s matching comment: on this SDK, an
+            // `.overlay`-positioned button cluster left the tvOS focus
+            // engine unable to move focus off whichever button had it.
+            VStack {
+                HStack {
+                    Spacer()
+                    lobbyChromeButtons
+                }
+                Spacer()
+            }
+            .padding(24)
+        }
+        // On-demand rules review — automatic once per Apple TV via
+        // `introVideoView`/`rulesView`, but never reachable again after
+        // that first game. This lets anyone check the rules whenever, from
+        // the lobby, without waiting for a fresh install.
+        .sheet(isPresented: $showRules) {
+            ZStack {
+                background
+                rulesView
             }
         }
-        .padding(60)
-        .overlay(alignment: .topTrailing) {
+    }
+
+    private var lobbyChromeButtons: some View {
+        HStack(spacing: 40) {
+            Button {
+                showRules = true
+            } label: {
+                Image(systemName: "book.closed.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.35), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Rules")
+
             Button {
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 28))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(18)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.35), in: Circle())
             }
             .buttonStyle(.plain)
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsSheet()
+            .accessibilityLabel("Settings")
         }
     }
 
     private var header: some View {
-        VStack(spacing: 20) {
-            Label("PHOENIX ACADEMY", systemImage: "magnifyingglass")
-                .font(.system(size: 64, weight: .heavy, design: .rounded))
-                .foregroundStyle(Color.phoenixGold)
+        VStack(spacing: 24) {
+            Label("CRACK THE CASE", systemImage: "magnifyingglass")
+                .font(.system(size: 80, weight: .black, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(colors: [.phoenixGold, .orange], startPoint: .top, endPoint: .bottom)
+                )
+                .shadow(color: .phoenixGold.opacity(0.4), radius: 15)
 
             Text(
                 host.session.players.isEmpty
-                    ? "Waiting for young detectives…"
+                    ? "Awaiting Detectives..."
                     : "Press Ready on your phone to start the investigation"
             )
-            .font(.system(size: 28, weight: .medium, design: .rounded))
+            .font(.system(size: 30, weight: .medium, design: .rounded))
             .foregroundStyle(.white.opacity(0.85))
+
+            if !host.session.players.isEmpty {
+                Text("\(readyPlayerCount)/\(host.session.players.count) ready")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.phoenixMuted)
+            }
 
             joinCodeBadge
         }
+    }
+
+    private var readyPlayerCount: Int {
+        host.session.players.count { $0.isReady }
     }
 
     /// A large, high-contrast digit-by-digit display of the join code — big
     /// enough to read clearly from across the room on a TV, unlike a small
     /// inline text badge.
     private var joinCodeBadge: some View {
-        VStack(spacing: 14) {
-            Label("JOIN CODE", systemImage: "lock.shield.fill")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.65))
-                .tracking(3)
+        VStack(spacing: 16) {
+            Label("ACCESS CODE", systemImage: "lock.shield.fill")
+                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white.opacity(0.7))
+                .tracking(4)
 
-            HStack(spacing: 18) {
+            HStack(spacing: 20) {
                 ForEach(Array(host.session.joinCode.enumerated()), id: \.offset) { _, digit in
                     Text(String(digit))
-                        .font(.system(size: 76, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 86, height: 108)
-                        .background(Color.phoenixCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .font(.system(size: 86, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
+                        .frame(width: 96, height: 120)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .strokeBorder(Color.phoenixGold, lineWidth: 3)
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .strokeBorder(LinearGradient(colors: [.white.opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
                         )
-                        .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 8)
+                        .shadow(color: .black.opacity(0.5), radius: 15, x: 0, y: 10)
                 }
             }
         }
-        .padding(.top, 6)
+        .padding(.top, 10)
     }
 
     private var emptyState: some View {
@@ -375,12 +568,24 @@ struct ContentView: View {
             .frame(maxWidth: 720)
 
             Button {
-                hasSeenOnboarding = true
-                host.beginMinigame()
+                if host.session.phase == .rules {
+                    // Real first-game onboarding: dismiss straight into the
+                    // minigame.
+                    hasSeenOnboarding = true
+                    host.beginMinigame()
+                } else {
+                    // On-demand review from the lobby (see `showRules`) —
+                    // just close the sheet, nothing about the game itself
+                    // should change.
+                    showRules = false
+                }
             } label: {
-                Label("Got it, let's start!", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 12)
+                Label(
+                    host.session.phase == .rules ? "Got it, let's start!" : "Close",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .padding(.horizontal, 12)
             }
             .buttonStyle(.borderedProminent)
             .tint(Color.phoenixGreen)
@@ -407,13 +612,23 @@ struct ContentView: View {
     private var minigameView: some View {
         VStack(spacing: 32) {
             VStack(spacing: 8) {
-                Label("WHO WILL BE FASTEST?", systemImage: "hare.fill")
+                Label("WHO WILL BE FASTEST?", systemImage: "magnifyingglass")
                     .font(.system(size: 44, weight: .heavy, design: .rounded))
                     .foregroundStyle(Color.phoenixGold)
 
                 Text(minigameStatusText)
                     .font(.system(size: 24, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.85))
+
+                // Once the first detective finishes, a shared skip-grace-
+                // period countdown starts — anyone still stuck when it hits
+                // zero is auto-skipped by the host so the round can't stall
+                // forever on one player (see `GameSession.minigameSkipGracePeriod`).
+                if let firstFinishAt = host.session.minigameFirstFinishAt, !host.session.allPlayersFinishedMinigame {
+                    SkipDeadlineCountdown(
+                        deadline: firstFinishAt.addingTimeInterval(GameSession.minigameSkipGracePeriod)
+                    )
+                }
             }
 
             if finishedPlayers.isEmpty {
@@ -432,7 +647,7 @@ struct ContentView: View {
                         LeaderboardRow(
                             rank: index + 1,
                             player: player,
-                            isPenalized: player.id == host.session.penalizedPlayerID
+                            isPenalized: host.session.penalizedPlayerIDs.contains(player.id)
                         )
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
@@ -465,19 +680,27 @@ struct ContentView: View {
     }
 
     private var roomBoardView: some View {
-        VStack(spacing: 32) {
-            VStack(spacing: 8) {
-                Label("THE ROOMS OF PHOENIX ACADEMY", systemImage: "door.left.hand.open")
-                    .font(.system(size: 40, weight: .heavy, design: .rounded))
+        VStack(spacing: 36) {
+            VStack(spacing: 12) {
+                Label("INVESTIGATION AREAS", systemImage: "door.left.hand.open")
+                    .font(.system(size: 46, weight: .black, design: .rounded))
                     .foregroundStyle(Color.phoenixGold)
+                    .shadow(color: .phoenixGold.opacity(0.3), radius: 10)
 
-                Text("Round \(host.session.roundNumber)")
-                    .font(.system(size: 18, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.5))
+                Text("ROUND \(host.session.roundNumber)")
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .tracking(2)
 
                 Text(roomSelectionStatusText)
-                    .font(.system(size: 24, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                if !host.session.isRoomSelectionComplete {
+                    Text("Only 3 of the 9 rooms hide a clue")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.phoenixMuted)
+                }
             }
 
             if host.session.isRoomSelectionComplete {
@@ -546,57 +769,133 @@ struct ContentView: View {
     }
 
     private var notebookBoardView: some View {
-        VStack(spacing: 32) {
-            VStack(spacing: 8) {
-                Label("WHO DID IT?", systemImage: "book.fill")
-                    .font(.system(size: 44, weight: .heavy, design: .rounded))
+        VStack(spacing: 40) {
+            VStack(spacing: 12) {
+                Text("SUSPECT DATABASE")
+                    .font(.system(size: 46, weight: .black, design: .monospaced))
                     .foregroundStyle(Color.phoenixGold)
+                    .tracking(4)
 
-                Text("Round \(host.session.roundNumber)")
-                    .font(.system(size: 20, weight: .medium, design: .rounded))
+                Text("ROUND \(host.session.roundNumber)")
+                    .font(.system(size: 24, weight: .heavy, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.6))
+                    .tracking(2)
             }
 
             if let accusation = host.session.lastAccusation, !accusation.wasCorrect {
                 wrongAccusationBanner(accusation)
             }
 
-            if host.session.isCurrentRoundBlackout {
-                Label("Black-out round: no votes this time!", systemImage: "bolt.slash.fill")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.phoenixGold)
-                    .padding(14)
-                    .phoenixCardStyle(cornerRadius: 14)
+            if !host.session.failedAccusationPlayerIDs.isEmpty {
+                Label(
+                    "\(host.session.failedAccusationPlayerIDs.count) failed accusation\(host.session.failedAccusationPlayerIDs.count == 1 ? "" : "s") this round",
+                    systemImage: "xmark.seal.fill"
+                )
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.phoenixMuted)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 20), count: 3), spacing: 20) {
+            if host.session.isCurrentRoundBlackout {
+                Text("VOTING OFFLINE - BLACKOUT")
+                    .font(.system(size: 20, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.phoenixDestructive)
+                    .tracking(2)
+                    .padding()
+            }
+
+            // Every suspect shown full-figure, side by side in a single row —
+            // the whole line-up is meant to be scanned at once like a police
+            // line-up, not browsed a few at a time in a grid.
+            HStack(spacing: 20) {
                 ForEach(Suspects.all) { suspect in
-                    SuspectCard(suspect: suspect)
+                    VStack(spacing: 0) {
+                        // Full portrait, never cropped — see `SuspectPortraitView`.
+                        SuspectPortraitView(suspect: suspect)
+                            .frame(height: 220)
+
+                        Text(suspect.name.uppercased())
+                            .font(.system(size: 22, weight: .black, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .frame(height: 56)
+                            .frame(maxWidth: .infinity)
+                            .background(suspect.color.color.opacity(0.9))
+                    }
+                    .background(Color.black)
+                    .overlay(Rectangle().strokeBorder(suspect.color.color, lineWidth: 3))
+                    .shadow(color: suspect.color.color.opacity(0.3), radius: 10, x: 0, y: 10)
                 }
             }
-            .frame(maxWidth: 900)
-
-            Button {
+            
+            NotebookCountdownView {
+                guard host.session.phase == .notebook else { return }
                 host.beginNextRound()
-            } label: {
-                Label("Next round", systemImage: "arrow.clockwise.circle.fill")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 12)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.phoenixGreen)
         }
-        .padding(50)
+        .padding(60)
     }
 
+    /// Auto-advances the board out of `.notebook` after a countdown — but
+    /// only while `.notebook` is actually on screen. `.onDisappear` stops
+    /// the timer the moment the phase moves away (most commonly to
+    /// `.voting`), instead of leaving it running unseen in the background:
+    /// without that cleanup, `Timer.scheduledTimer` isn't tied to this
+    /// view's lifetime at all, so a leaked timer from a previous mount kept
+    /// ticking through the vote and could fire `beginNextRound()` at an
+    /// arbitrary moment after voting returned to `.notebook`, cutting the
+    /// freshly-restarted countdown short. Since SwiftUI gives this view a
+    /// brand-new identity (and thus a fresh `secondsRemaining`) every time
+    /// `.notebook` comes back on screen, simply stopping the old timer on
+    /// disappear is enough to both "pause" while voting and restart at 10s
+    /// once back — no extra state needed.
+    private struct NotebookCountdownView: View {
+        let onComplete: () -> Void
+        @State private var secondsRemaining = 10
+        @State private var timer: Timer?
+
+        var body: some View {
+            VStack(spacing: 8) {
+                Text("NEXT ROUND INITIATING AUTOMATICALLY IN")
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+
+                Text("\(secondsRemaining)")
+                    .font(.system(size: 32, weight: .black, design: .monospaced))
+                    .foregroundStyle(Color.phoenixGold)
+            }
+            .padding(.top, 20)
+            .onAppear {
+                startCountdown()
+            }
+            .onDisappear {
+                timer?.invalidate()
+            }
+        }
+
+        private func startCountdown() {
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+                if secondsRemaining > 0 {
+                    secondsRemaining -= 1
+                } else {
+                    timer.invalidate()
+                    onComplete()
+                }
+            }
+        }
+    }
+
+    /// Shown on the shared board after a failed accusation — names the
+    /// accuser but deliberately never the suspect they picked, so the rest
+    /// of the table doesn't get a free hint about who's already been ruled
+    /// out by someone else's guess.
     private func wrongAccusationBanner(_ accusation: Accusation) -> some View {
-        let accuserName = player(for: accusation.playerID)?.nickname ?? "A player"
-        let suspectName = suspect(for: accusation.suspectID)?.name ?? "someone"
-        return Label("\(accuserName) accused \(suspectName) — wrong! The game continues.", systemImage: "xmark.circle.fill")
-            .font(.system(size: 20, weight: .semibold, design: .rounded))
+        let accuserName = player(for: accusation.playerID)?.nickname ?? "AGENT"
+        return Text("\(accuserName.uppercased()) GUESSED WRONG.")
+            .font(.system(size: 24, weight: .bold, design: .monospaced))
             .foregroundStyle(Color.phoenixDestructive)
-            .padding(16)
-            .phoenixCardStyle(cornerRadius: 16)
+            .padding()
+            .background(Color.phoenixDestructive.opacity(0.1))
+            .overlay(Rectangle().strokeBorder(Color.phoenixDestructive, lineWidth: 2))
     }
 
     private func suspect(for id: String) -> Suspect? {
@@ -698,6 +997,50 @@ struct ContentView: View {
         .padding(60)
     }
 
+    private var defeatView: some View {
+        VStack(spacing: 28) {
+            Image(systemName: "hourglass.tophalf.fill")
+                .font(.system(size: 88))
+                .foregroundStyle(Color.phoenixDestructive)
+
+            Text("CASE UNSOLVED")
+                .font(.system(size: 52, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text("\(GameSession.maxRoundNumber) rounds have passed and nobody named the real culprit. Everyone loses.")
+                .font(.system(size: 22, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 60)
+
+            if let culprit = suspect(for: host.session.culpritID) {
+                VStack(spacing: 10) {
+                    SuspectPortraitView(suspect: culprit)
+                        .frame(height: 140)
+                    Text("The culprit was \(culprit.name)")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.phoenixGold)
+                    Text(culprit.role)
+                        .font(.system(size: 16, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                .padding(.top, 10)
+            }
+
+            Button {
+                host.playAgain()
+            } label: {
+                Label("Play Again", systemImage: "arrow.counterclockwise.circle.fill")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.phoenixGreen)
+            .padding(.top, 10)
+        }
+        .padding(60)
+    }
+
     private var notEnoughPlayersView: some View {
         VStack(spacing: 28) {
             Image(systemName: "person.fill.xmark")
@@ -769,6 +1112,15 @@ struct ContentView: View {
                         .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(Color.phoenixMuted)
                 }
+
+                // Anyone still stuck once the shared skip-grace-period
+                // elapses is auto-skipped by the host, with no penalty —
+                // see `GameSession.blackoutSkipGracePeriod`.
+                if !host.session.allPlayersFinishedBlackoutTask {
+                    SkipDeadlineCountdown(
+                        deadline: startedAt.addingTimeInterval(GameSession.blackoutSkipGracePeriod)
+                    )
+                }
             }
 
             if host.session.blackoutMinigame == .lightRegulator {
@@ -837,6 +1189,24 @@ private struct PlayerBadge: View {
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 6)
+    }
+}
+
+/// A compact countdown badge shown on the board once the shared skip-
+/// grace-period window has started, mirroring the same deadline shown on
+/// each stuck player's phone (see `SkipCountdownBar` in
+/// `CrackTheCaseIos/ContentView.swift`). The host is the actual authority on
+/// when the deadline expires — this is purely the on-screen readout.
+private struct SkipDeadlineCountdown: View {
+    let deadline: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let remaining = max(0, Int(deadline.timeIntervalSince(context.date).rounded(.up)))
+            Label("Auto-skip in \(remaining)s", systemImage: "timer")
+                .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                .foregroundStyle(remaining <= 5 ? Color.phoenixDestructive : Color.phoenixMuted)
+        }
     }
 }
 
@@ -967,60 +1337,30 @@ private struct RoundSummaryRow: View {
     }
 }
 
-private struct SuspectCard: View {
-    let suspect: Suspect
-
-    var body: some View {
-        VStack(spacing: 12) {
-            SuspectPortraitView(suspect: suspect)
-                .frame(height: 150)
-
-            Text(suspect.name)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
-            Text(suspect.role)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.phoenixGold)
-
-            Text(suspect.detail)
-                .font(.system(size: 14, design: .rounded))
-                .foregroundStyle(.white.opacity(0.75))
-                .multilineTextAlignment(.center)
-
-            VStack(alignment: .leading, spacing: 6) {
-                CaseColorTag(color: suspect.color)
-                EvidenceTraitList(suspect: suspect, spacing: 4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .phoenixCardStyle()
-    }
-}
-
-/// A vertical (portrait-orientation) picture of a suspect. Real art should
-/// be added to the asset catalog as `"suspect-<id>"` (e.g.
-/// `"suspect-headmaster"`, matching `Suspect.id`) — until then this shows a
-/// soft silhouette placeholder instead of a flat color block.
+/// A vertical (portrait-orientation) picture of a suspect, shown at its own
+/// aspect ratio — never cropped — so the whole character is visible. Every
+/// suspect display (this view, the notebook grid, the accusation picker)
+/// routes through here and shares the same `"<CaseColor>"` asset (e.g.
+/// `"Blue"`) also used for player avatar badges, matching `Suspect.name`;
+/// there's a single asset per case color, not a separate one per suspect
+/// id. Falls back to a soft silhouette placeholder if that asset is ever
+/// missing (e.g. a future suspect added without art yet).
 struct SuspectPortraitView: View {
     let suspect: Suspect
 
-    private var assetName: String { "suspect-\(suspect.id)" }
+    private var assetName: String { suspect.name }
 
     var body: some View {
-        ZStack {
+        Group {
             if let uiImage = UIImage(named: assetName) {
                 Image(uiImage: uiImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: .fit)
             } else {
                 placeholder
+                    .aspectRatio(3 / 4, contentMode: .fit)
             }
         }
-        .aspectRatio(3 / 4, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
