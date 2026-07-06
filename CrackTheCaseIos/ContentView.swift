@@ -14,6 +14,7 @@ import CrackTheCaseCore
 struct ContentView: View {
     @State private var client = ClientConnectivityService()
     @State private var nickname = PlayerNickname.saved() ?? ""
+    @AppStorage("savedAvatarID") private var savedAvatarID: String = ""
     @State private var codeInput = ""
     @State private var roomFindingSecondsRemaining: Int?
     /// Tracks the in-flight countdown Task below so a new `onChange` firing
@@ -39,6 +40,10 @@ struct ContentView: View {
     private static let maxAutoReconnectAttempts = 4
     private static let roomReadingSeconds = 10
 
+    private var selectedAvatar: Avatar? {
+        Avatar(rawValue: savedAvatarID)
+    }
+
     private var myPlayer: Player? {
         client.players.first { $0.id == client.localPlayerID }
     }
@@ -51,19 +56,7 @@ struct ContentView: View {
                 background
                 content
             }
-            .navigationTitle("Crack the Case")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.phoenixBackground, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
             }
@@ -136,7 +129,7 @@ struct ContentView: View {
             let trimmed = nickname.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { return }
             PlayerNickname.save(trimmed)
-            client.join(nickname: trimmed)
+            client.join(nickname: trimmed, avatar: selectedAvatar)
         }
         .onChange(of: client.phase) { _, phase in
             // Black-out is meant to feel tense: a strong one-off pulse when
@@ -386,6 +379,28 @@ struct ContentView: View {
         }
     }
 
+    
+    private var avatarPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(Avatar.allCases) { avatar in
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        savedAvatarID = avatar.rawValue
+                        syncProfile()
+                    } label: {
+                        Text(avatar.emoji)
+                            .font(.system(size: 40))
+                            .frame(width: 60, height: 60)
+                            .background(savedAvatarID == avatar.rawValue ? Color.phoenixGold : Color.white.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private var profileView: some View {
         Group {
             switch client.phase {
@@ -583,89 +598,116 @@ struct ContentView: View {
     }
 
     private var roomChoiceView: some View {
-        VStack(spacing: 16) {
-            Text("Your turn! Choose a room to explore.")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 5), spacing: 14) {
-                ForEach(RoomID.allCases) { room in
-                    Button {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        client.chooseRoom(room)
-                    } label: {
-                        VStack(spacing: 8) {
-                            Image(systemName: room.icon)
-                                .font(.system(size: 24))
-                            Text(room.displayName)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.8)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("SELECT LOCATION")
+                .font(.system(size: 24, weight: .black, design: .monospaced))
+                .foregroundStyle(Color.phoenixGold)
+                .tracking(4)
+                .padding(.horizontal, 20)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(RoomID.allCases) { room in
+                        let isTaken = client.roomVisitLog.contains { $0.roomID == room }
+                        Button {
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                            client.chooseRoom(room)
+                        } label: {
+                            VStack(spacing: 12) {
+                                Image(systemName: room.icon)
+                                    .font(.system(size: 40, weight: .light))
+                                    .foregroundStyle(isTaken ? Color.gray : Color.phoenixGold)
+                                
+                                Text(room.displayName.uppercased())
+                                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                                    .foregroundStyle(isTaken ? Color.gray : .white)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(width: 200, height: 260)
+                            .background(
+                                ZStack {
+                                    isTaken ? Color.black.opacity(0.8) : Color.white.opacity(0.05)
+                                }
+                            )
+                            .overlay(Rectangle().strokeBorder(isTaken ? Color.gray.opacity(0.3) : Color.phoenixGold, lineWidth: 2))
+                            .overlay {
+                                if isTaken {
+                                    Image(systemName: "slash.circle.fill")
+                                        .font(.system(size: 60))
+                                        .foregroundStyle(Color.red.opacity(0.7))
+                                }
+                            }
                         }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 84)
-                        .background(Color.phoenixCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                        )
+                        .buttonStyle(.plain)
+                        .disabled(isTaken)
                     }
                 }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 24)
-
-            Spacer()
         }
     }
 
     private func roomFindingView(_ finding: RoomFinding, secondsRemaining: Int) -> some View {
-        HStack(spacing: 36) {
-            VStack(spacing: 18) {
+        HStack(spacing: 40) {
+            // Left side: Timer
+            VStack {
                 Text("\(secondsRemaining)")
-                    .font(.system(size: 32, weight: .heavy, design: .rounded))
+                    .font(.system(size: 60, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
-                    .frame(width: 60, height: 60)
-                    .background(Color.phoenixGold, in: Circle())
-
-                Image(systemName: roomFindingIcon(finding))
-                    .font(.system(size: 48))
-                    .foregroundStyle(roomFindingIconColor(finding))
+                    .frame(width: 120, height: 120)
+                    .background(roomFindingIconColor(finding).opacity(0.2), in: Circle())
+                    .overlay(Circle().strokeBorder(roomFindingIconColor(finding), lineWidth: 4))
+                    .shadow(color: roomFindingIconColor(finding).opacity(0.5), radius: 10)
             }
-            .frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 10) {
-                switch finding {
-                case .clue(let clue):
-                    Text(clue.title)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text(clue.text)
-                        .font(.system(size: 16, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.85))
-
-                case .empty:
-                    Text("This room is empty…")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("Nothing to see here. Next time!")
-                        .font(.system(size: 16, design: .rounded))
-                        .foregroundStyle(.phoenixMuted)
-
-                case .hiddenByPenalty:
-                    Text("Hard to tell what's here…")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("This room might be hiding a clue, but you can't see it clearly. Blame your slow minigame finish…")
-                        .font(.system(size: 16, design: .rounded))
-                        .foregroundStyle(.phoenixMuted)
+            // Right side: Content Card
+            VStack(spacing: 16) {
+                Image(systemName: roomFindingIcon(finding))
+                    .font(.system(size: 50))
+                    .foregroundStyle(roomFindingIconColor(finding))
+                    .shadow(color: roomFindingIconColor(finding).opacity(0.5), radius: 10)
+                
+                VStack(spacing: 8) {
+                    switch finding {
+                    case .clue(let clue):
+                        Text(clue.title)
+                            .font(.system(size: 24, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(clue.text)
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    case .empty:
+                        Text("This area is clear")
+                            .font(.system(size: 24, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text("Nothing to see here. Time to move on.")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.7))
+                    case .hiddenByPenalty:
+                        Text("Visibility compromised")
+                            .font(.system(size: 24, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text("You were too slow in the emergency task. Any clues here are hidden in darkness.")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 30)
+            .padding(.vertical, 20)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.4), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
         }
-        .padding(.horizontal, 50)
+        .padding(.horizontal, 40)
     }
 
     private func roomFindingIcon(_ finding: RoomFinding) -> String {
@@ -685,55 +727,90 @@ struct ContentView: View {
     }
 
     private var notebookView: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Text("Mark who you've ruled out — process of elimination will get you to the culprit.")
-                    .font(.system(size: 15, design: .rounded))
-                    .foregroundStyle(.phoenixMuted)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                Text("SUSPECT DATABASE")
+                    .font(.system(size: 22, weight: .black, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .tracking(4)
+                    .padding(.top, 20)
+                    .padding(.bottom, 10)
 
-                if let accusation = client.lastAccusation, !accusation.wasCorrect {
+                if let accusation = client.lastAccusation, !accusation.wasCorrect, accusation.playerID == client.localPlayerID {
                     wrongAccusationBanner(accusation)
+                        .padding(.bottom, 10)
                 }
 
-                ForEach(Suspects.all) { suspect in
-                    SuspectRow(
-                        suspect: suspect,
-                        isExcluded: excludedSuspectIDs.contains(suspect.id)
-                    ) {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        if excludedSuspectIDs.contains(suspect.id) {
-                            excludedSuspectIDs.remove(suspect.id)
-                        } else {
-                            excludedSuspectIDs.insert(suspect.id)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 20) {
+                        ForEach(Suspects.all) { suspect in
+                            let isExcluded = excludedSuspectIDs.contains(suspect.id)
+                            
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                if isExcluded {
+                                    excludedSuspectIDs.remove(suspect.id)
+                                } else {
+                                    excludedSuspectIDs.insert(suspect.id)
+                                }
+                            } label: {
+                                VStack(spacing: 0) {
+                                    Image(suspect.name) // Asset name is the color like "Blue"
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 160, height: 200)
+                                        .clipped()
+                                        .opacity(isExcluded ? 0.3 : 1.0)
+                                    
+                                    Text(suspect.name.uppercased())
+                                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(.white)
+                                        .frame(height: 50)
+                                        .frame(maxWidth: .infinity)
+                                        .background(suspect.color.color.opacity(0.8))
+                                }
+                                .frame(width: 160)
+                                .background(Color.black)
+                                .overlay(Rectangle().strokeBorder(isExcluded ? Color.red : suspect.color.color, lineWidth: 2))
+                                .overlay {
+                                    if isExcluded {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 80, weight: .black))
+                                            .foregroundStyle(.red)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
                         }
-                    } onShowDetail: {
-                        suspectDetail = suspect
                     }
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 20)
                 }
-
+                
                 if client.isCurrentRoundBlackout {
-                    Label("No votes during the Black-out!", systemImage: "bolt.slash.fill")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.phoenixGold)
-                        .padding(.top, 4)
+                    Text("VOTING OFFLINE - BLACKOUT")
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.phoenixGold)
+                        .padding(.bottom, 20)
+                } else {
+                    let hasFailed = client.failedAccusationPlayerIDs.contains(client.localPlayerID)
+                    Button {
+                        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                        client.startVoting()
+                    } label: {
+                        Text(hasFailed ? "ACCUSATION FAILED" : "INITIATE ACCUSATION")
+                            .font(.system(size: 20, weight: .black, design: .monospaced))
+                            .foregroundStyle(hasFailed ? .white.opacity(0.5) : .black)
+                            .padding(.horizontal, 40)
+                            .padding(.vertical, 16)
+                            .background(hasFailed ? Color.red.opacity(0.3) : Color.phoenixDestructive)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(hasFailed)
+                    .padding(.bottom, 20)
                 }
-
-                Button {
-                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
-                    client.startVoting()
-                } label: {
-                    Label("Vote", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                }
-                .buttonStyle(PressableButtonStyle(tint: .phoenixDestructive))
-                .disabled(client.isCurrentRoundBlackout)
-                .padding(.top, 8)
             }
-            .padding(20)
         }
     }
 
@@ -780,57 +857,79 @@ struct ContentView: View {
     }
 
     private var accusationPickerView: some View {
-        VStack(spacing: 20) {
-            Text("Who do you accuse?")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.top, 20)
+        ZStack {
+            LinearGradient(colors: [Color.red.opacity(0.4), Color.black], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
 
-            Text("Choose carefully: if you're wrong, the game continues but you'll have lost your chance.")
-                .font(.system(size: 14, design: .rounded))
-                .foregroundStyle(.phoenixMuted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 16) {
+                    Text("WHO DO YOU ACCUSE?")
+                        .font(.system(size: 24, weight: .black, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .tracking(4)
+                        .padding(.top, 20)
 
-            ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 14) {
-                    ForEach(Suspects.all) { suspect in
-                        Button {
-                            accusationCandidate = suspect
-                        } label: {
-                            VStack(spacing: 8) {
-                                SuspectPortraitView(suspect: suspect)
-                                    .frame(height: 110)
-                                Text(suspect.name)
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .multilineTextAlignment(.center)
-                                    .foregroundStyle(.white)
+                    Text("Choose carefully: if you're wrong, the game continues but you'll have lost your chance.")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 20) {
+                            ForEach(Suspects.all) { suspect in
+                                let isSelected = accusationCandidate?.id == suspect.id
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    accusationCandidate = suspect
+                                } label: {
+                                    VStack(spacing: 0) {
+                                        Image(suspect.name) // Same size as notebook
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 160, height: 200)
+                                            .clipped()
+                                        
+                                        Text(suspect.name.uppercased())
+                                            .font(.system(size: 18, weight: .bold, design: .monospaced))
+                                            .foregroundStyle(.white)
+                                            .frame(height: 50)
+                                            .frame(maxWidth: .infinity)
+                                            .background(suspect.color.color.opacity(0.8))
+                                    }
+                                    .frame(width: 160)
+                                    .background(Color.black)
+                                    .overlay(Rectangle().strokeBorder(isSelected ? Color.white : suspect.color.color, lineWidth: isSelected ? 4 : 2))
+                                    .shadow(color: isSelected ? .white.opacity(0.5) : .clear, radius: 10)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(10)
-                            .phoenixCardStyle(cornerRadius: 16)
                         }
+                        .padding(.horizontal, 40)
+                        .padding(.vertical, 10)
+                    }
+
+                    if let candidate = accusationCandidate {
+                        Button {
+                            client.castAccusation(suspectID: candidate.id)
+                            accusationCandidate = nil
+                        } label: {
+                            Text("CONFIRM ACCUSATION: \(candidate.name.uppercased())")
+                                .font(.system(size: 20, weight: .black, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 40)
+                                .padding(.vertical, 16)
+                                .background(Color.red)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .shadow(color: .red.opacity(0.5), radius: 10, y: 5)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 20)
+                    } else {
+                        Spacer().frame(height: 52)
+                            .padding(.bottom, 20)
                     }
                 }
-                .padding(20)
-            }
-        }
-        .confirmationDialog(
-            "Are you sure you want to accuse \(accusationCandidate?.name ?? "")?",
-            isPresented: Binding(
-                get: { accusationCandidate != nil },
-                set: { if !$0 { accusationCandidate = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Yes, accuse \(accusationCandidate?.name ?? "")", role: .destructive) {
-                if let suspectID = accusationCandidate?.id {
-                    client.castAccusation(suspectID: suspectID)
-                }
-                accusationCandidate = nil
-            }
-            Button("Cancel", role: .cancel) {
-                accusationCandidate = nil
             }
         }
     }
@@ -972,9 +1071,9 @@ struct ContentView: View {
         let trimmed = nickname.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         if myPlayer == nil {
-            client.join(nickname: trimmed)
+            client.join(nickname: trimmed, avatar: selectedAvatar)
         } else {
-            client.updateProfile(nickname: trimmed)
+            client.updateProfile(nickname: trimmed, avatar: selectedAvatar)
         }
     }
 }
