@@ -21,6 +21,17 @@ struct ContentView: View {
     /// mid-countdown cancels the stale one instead of letting two loops race
     /// and clobber `roomFindingSecondsRemaining`.
     @State private var roomFindingCountdownTask: Task<Void, Never>?
+    /// Which room this player most recently chose — `RoomFinding` itself
+    /// deliberately never carries a `RoomID` (see `Room.swift`), so this is
+    /// tracked locally purely to pick the right `RoomID.clueAsset` photo for
+    /// `roomFindingView`, without touching the wire protocol.
+    @State private var lastChosenRoom: RoomID?
+    /// Every distinct clue this player has personally found so far this
+    /// game, in the room it was found — purely local (never sent to the
+    /// host, matching the "local-only vs networked state" pattern used
+    /// elsewhere). Drives both the notebook's clue list and the "3 clues
+    /// collected" gate on casting an accusation.
+    @State private var collectedClues: [(room: RoomID, clue: Clue)] = []
     @State private var reconnectAttempts = 0
     /// Suspects this player has ruled out — purely a personal aid, never
     /// sent to the host.
@@ -33,8 +44,6 @@ struct ContentView: View {
     /// round. Purely local UI state, derived by watching `client.lastAccusation`.
     @State private var wronglyAccusedSuspectIDs: Set<String> = []
     @State private var accusationCandidate: Suspect?
-    /// The suspect currently shown full-screen (portrait + details), if any.
-    @State private var suspectDetail: Suspect?
     @State private var showSettings = false
     /// Backs the persistent "leave game" corner button's confirmation — see
     /// `leaveGameButton`. Without this control, a player had no way to bail
@@ -66,6 +75,15 @@ struct ContentView: View {
     private var isReady: Bool { myPlayer?.isReady ?? false }
 
     @State private var isAtHome = true
+    /// True while the device's *physical* orientation (accelerometer, via
+    /// `UIDevice.current.orientation` — independent of how the interface is
+    /// actually being drawn) is portrait. The app is landscape-only (see
+    /// `requestOrientation` and the target's `UISupportedInterfaceOrientations`),
+    /// which already makes iOS render it in landscape regardless of the
+    /// physical rotation lock in Control Center — but that doesn't stop a
+    /// player from holding the phone upright while the content is drawn
+    /// sideways; this drives the "please rotate" overlay for that case.
+    @State private var isDevicePhysicallyPortrait = false
 
     var body: some View {
         ZStack {
@@ -79,6 +97,10 @@ struct ContentView: View {
                 .overlay(alignment: .topLeading) {
                     leaveGameButton
                 }
+            }
+
+            if isDevicePhysicallyPortrait {
+                rotateDevicePrompt
             }
         }
         .tint(.phoenixGold)
@@ -165,6 +187,7 @@ struct ContentView: View {
             if phase == .lobby {
                 excludedSuspectIDs = []
                 wronglyAccusedSuspectIDs = []
+                collectedClues = []
             }
 
             // The Taptic Engine can go dormant after a stretch of no
@@ -187,16 +210,35 @@ struct ContentView: View {
             switch phase {
             case .blackoutReveal:
                 Haptics.notify(.warning)
+                Haptics.vibrate()
             case .blackoutTask:
                 blackoutPulseTask = Task {
                     while !Task.isCancelled {
                         Haptics.impact(.heavy)
+                        Haptics.vibrate()
                         try? await Task.sleep(for: .seconds(1.5))
                     }
                 }
             default:
                 break
             }
+        }
+        // A single, uniform "you're done" pulse the instant any task
+        // finishes — turn-order minigame or Black-out task alike. Deliberately
+        // centralized here instead of wired into each of the 16 individual
+        // minigame views: some already fire their own richer in-game haptics
+        // (a different purpose — feedback *during* play), and the cooperative
+        // `lightRegulator` Black-out task has no per-player `onComplete`
+        // closure at all (it completes once the shared average hits the
+        // target), so only watching these two host-driven "finished" signals
+        // covers every case uniformly.
+        .onChange(of: client.hasFinishedMinigame) { _, finished in
+            guard finished else { return }
+            Haptics.impact(.light)
+        }
+        .onChange(of: hasFinishedBlackoutTask) { _, finished in
+            guard finished else { return }
+            Haptics.impact(.light)
         }
         .onChange(of: client.lastAccusation) { _, accusation in
             // Once this player's own guess comes back wrong, that suspect
@@ -211,11 +253,89 @@ struct ContentView: View {
             // Every screen in this app — the turn-order minigames and the
             // Black-out tasks most of all — is laid out for landscape, so
             // the whole controller stays landscape-only rather than
-            // rotating per phase.
+            // rotating per phase. The target's `UISupportedInterfaceOrientations`
+            // only lists landscape orientations, which already forces iOS to
+            // render this app in landscape regardless of the Control Center
+            // rotation lock (a locked app can't be "unlocked into" an
+            // orientation it doesn't support in the first place) — this call
+            // additionally nudges an already-running scene that's still
+            // mid-transition, and is re-invoked by `rotateDevicePrompt`'s
+            // button below.
             requestOrientation(.landscape)
+            // `UIDevice.orientation` doesn't update on its own — device
+            // orientation notifications must be explicitly turned on, and
+            // it's this app's job to turn them back off (see `.onDisappear`).
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         }
-        .sheet(item: $suspectDetail) { suspect in
-            SuspectDetailView(suspect: suspect)
+        .onDisappear {
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            switch UIDevice.current.orientation {
+            case .portrait, .portraitUpsideDown:
+                isDevicePhysicallyPortrait = true
+            case .landscapeLeft, .landscapeRight:
+                isDevicePhysicallyPortrait = false
+            case .faceUp, .faceDown, .unknown:
+                // Ambiguous — the phone is flat or the sensor can't tell.
+                // Leave whatever's currently showing alone rather than
+                // flipping the prompt on/off on every tiny wobble.
+                break
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    /// Full-screen fallback for when the interface renders landscape (this
+    /// app is landscape-only — see the `.onAppear` above) but the player is
+    /// still physically holding the phone upright. Includes a button that
+    /// re-asks the system to rotate: per Apple's documentation,
+    /// `requestGeometryUpdate` can override the Control Center rotation
+    /// lock for an orientation the app actually supports, which landscape
+    /// is (and portrait no longer is).
+    ///
+    /// Deliberately **not** counter-rotated to face the player upright:
+    /// getting that rotation direction right depends on exactly which
+    /// landscape orientation the system picked and exactly how the phone is
+    /// tilted, and guessing wrong (upside-down or mirrored) without a real
+    /// device to check on would be worse than just leaving it landscape —
+    /// the same static "please rotate" pattern most landscape-only apps use,
+    /// readable at a tilt either way.
+    private var rotateDevicePrompt: some View {
+        ZStack {
+            Color.phoenixBackground.ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Image(systemName: "rotate.right.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(Color.phoenixGold)
+                    .symbolEffect(.pulse)
+
+                Text("ROTATE YOUR PHONE")
+                    .font(.system(size: 24, weight: .black, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("This game only plays in landscape.")
+                    .font(.system(size: 15, design: .rounded))
+                    .foregroundStyle(.phoenixMuted)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    Haptics.impact(.light)
+                    requestOrientation(.landscape)
+                } label: {
+                    Text("ROTATE FOR ME")
+                        .font(.system(size: 15, weight: .black, design: .monospaced))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 14)
+                        .background(Color.phoenixGold, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(40)
         }
     }
 
@@ -308,36 +428,15 @@ struct ContentView: View {
                 Spacer()
                 
                 VStack(spacing: 20) {
-                    Button {
+                    homeActionButton(title: "JOIN A ROOM", icon: "door.left.hand.open") {
                         Haptics.impact(.heavy)
                         isAtHome = false
-                    } label: {
-                        Text("JOIN A ROOM")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 40)
-                            .padding(.vertical, 16)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.phoenixGold)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
-                    .buttonStyle(.plain)
-                    
-                    Button {
+
+                    homeActionButton(title: "SETTINGS", icon: "gearshape.fill") {
                         Haptics.impact(.light)
                         showSettings = true
-                    } label: {
-                        Text("SETTINGS")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 40)
-                            .padding(.vertical, 16)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.white.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.2)))
                     }
-                    .buttonStyle(.plain)
                 }
                 .frame(maxWidth: 400)
                 .padding(.bottom, 40)
@@ -347,6 +446,29 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) {
             SettingsSheet()
         }
+    }
+
+    /// A single shared style for both home-screen actions — previously "JOIN
+    /// A ROOM" was solid gold and "SETTINGS" was a faint bordered chip, an
+    /// inconsistency with no meaning behind it. Both now read as identical
+    /// dossier tabs, distinguished only by icon/label (mirrors the tvOS
+    /// target's `homeActionButton`).
+    private func homeActionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 20, weight: .bold, design: .monospaced))
+                .tracking(1)
+                .foregroundStyle(Color.phoenixGold)
+                .padding(.horizontal, 40)
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+                .background(Color.phoenixCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.phoenixGold.opacity(0.55), lineWidth: 2)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -670,11 +792,30 @@ struct ContentView: View {
     @ViewBuilder
     private var minigameView: some View {
         if client.hasFinishedMinigame {
-            landscapeStatus(icon: "checkmark.seal.fill") {
+            // Whether this player is the arrival that completed the group —
+            // always penalized (see `GameSession.recordMinigameFinish`/
+            // `skipMinigame`), whether by actually finishing dead last or by
+            // skipping. That penalty is otherwise invisible until this
+            // player happens to land on one of the 3 clue rooms during
+            // `.roomSelection` (an empty room looks identical either way),
+            // so it's called out here immediately instead of only being
+            // discoverable much later.
+            let isPenalized = client.penalizedPlayerIDs.contains(client.localPlayerID)
+            landscapeStatus(
+                icon: isPenalized ? "exclamationmark.triangle.fill" : "checkmark.seal.fill",
+                iconColor: isPenalized ? .phoenixDestructive : .phoenixGold
+            ) {
                 Text(minigameFinishedText)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if isPenalized {
+                    Text("You were last — your clue will stay hidden this round.")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.phoenixDestructive)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Text("Wait for the other detectives…")
                     .font(.system(size: 16, design: .rounded))
@@ -707,13 +848,13 @@ struct ContentView: View {
         }
     }
 
-    /// Dispatches to whichever of the 13 turn-order minigames the host
+    /// Dispatches to whichever of the 12 turn-order minigames the host
     /// rolled for this round (see `GameSession.turnMinigame`). Every one of
     /// them calls `client.finishMinigame()` through `onComplete` once
     /// solved; arrival order there is what sets this round's turn order and
     /// penalty, exactly like the rest.
     /// `numberMemory`/`holdRelease`/`tapInOrder`/`magneticRings`/`shakeCharge`/
-    /// `swipeCardPace`/`captchaReveal`/`scratchPin`/`keyFitting` have no
+    /// `swipeCardPace`/`captchaReveal`/`scratchPin` have no
     /// pre-game phase of their own — some (`tapInOrder`) start a timer the
     /// instant they appear — so they're wrapped in `MinigameIntroGate` to
     /// guarantee at least 5s of reading the instructions before they even
@@ -746,8 +887,6 @@ struct ContentView: View {
             TurnButtonMashingView(onComplete: client.finishMinigame)
         case .scratchPin:
             gated(client.turnMinigame) { TurnScratchPinView(onComplete: client.finishMinigame) }
-        case .keyFitting:
-            gated(client.turnMinigame) { TurnKeyFittingView(onComplete: client.finishMinigame) }
         case .validCardSwipe:
             TurnValidCardSwipeView(onComplete: client.finishMinigame)
         }
@@ -833,7 +972,17 @@ struct ContentView: View {
             }
         }
         .onChange(of: client.myRoomFinding) { _, finding in
-            guard finding != nil else { return }
+            guard let finding else { return }
+            // Accumulate distinct clues found across the whole game (not
+            // just this round) — `lastChosenRoom` was set right before this
+            // finding was requested, so it's still the room this finding
+            // came from. Dedupe by equality so revisiting a room whose clue
+            // hasn't moved (or seeing the same clue again after a Black-out
+            // reshuffle) doesn't double-count toward the 3-clue vote gate.
+            if case .clue(let clue) = finding, let room = lastChosenRoom,
+               !collectedClues.contains(where: { $0.clue == clue }) {
+                collectedClues.append((room: room, clue: clue))
+            }
             roomFindingCountdownTask?.cancel()
             roomFindingCountdownTask = Task {
                 for remaining in stride(from: Self.roomReadingSeconds, through: 1, by: -1) {
@@ -885,6 +1034,10 @@ struct ContentView: View {
                 .foregroundStyle(Color.phoenixGold)
                 .tracking(4)
                 .padding(.horizontal, 20)
+                // Top padding clears the persistent top-leading
+                // `leaveGameButton` overlay, which otherwise sits directly on
+                // top of this title.
+                .padding(.top, 40)
 
             Text("Only 3 of the 9 rooms hide a clue")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -898,24 +1051,47 @@ struct ContentView: View {
                         let isTaken = client.roomVisitLog.contains { $0.roomID == room }
                         Button {
                             Haptics.impact(.heavy)
+                            lastChosenRoom = room
                             client.chooseRoom(room)
                         } label: {
-                            VStack(spacing: 12) {
-                                Image(systemName: room.icon)
-                                    .font(.system(size: 40, weight: .light))
-                                    .foregroundStyle(isTaken ? Color.gray : Color.phoenixGold)
-                                
+                            ZStack(alignment: .bottom) {
+                                // Falls back to the SF Symbol icon (same
+                                // treatment as `SuspectPortraitView`) if a
+                                // cover photo is ever missing for this room.
+                                if UIImage(named: room.coverAsset) != nil {
+                                    Image(room.coverAsset)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 200, height: 260)
+                                        .clipped()
+                                        .grayscale(isTaken ? 1 : 0)
+                                        .opacity(isTaken ? 0.4 : 1)
+                                } else {
+                                    Rectangle()
+                                        .fill(isTaken ? Color.black.opacity(0.8) : Color.white.opacity(0.05))
+                                        .frame(width: 200, height: 260)
+                                        .overlay {
+                                            Image(systemName: room.icon)
+                                                .font(.system(size: 40, weight: .light))
+                                                .foregroundStyle(isTaken ? Color.gray : Color.phoenixGold)
+                                        }
+                                }
+
+                                LinearGradient(
+                                    colors: [.black.opacity(0.85), .clear],
+                                    startPoint: .bottom,
+                                    endPoint: .center
+                                )
+                                .frame(width: 200, height: 130)
+
                                 Text(room.displayName.uppercased())
-                                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                                    .font(.system(size: 15, weight: .black, design: .monospaced))
                                     .foregroundStyle(isTaken ? Color.gray : .white)
                                     .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 8)
+                                    .padding(.bottom, 14)
                             }
                             .frame(width: 200, height: 260)
-                            .background(
-                                ZStack {
-                                    isTaken ? Color.black.opacity(0.8) : Color.white.opacity(0.05)
-                                }
-                            )
                             .overlay(Rectangle().strokeBorder(isTaken ? Color.gray.opacity(0.3) : Color.phoenixGold, lineWidth: 2))
                             .overlay {
                                 if isTaken {
@@ -924,6 +1100,7 @@ struct ContentView: View {
                                         .foregroundStyle(Color.red.opacity(0.7))
                                 }
                             }
+                            .clipShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(isTaken)
@@ -934,67 +1111,98 @@ struct ContentView: View {
         }
     }
 
+    /// The room's own "clue scene" photo (`clueAsset`) shown full-screen —
+    /// these photos are shot specifically to be displayed edge-to-edge, each
+    /// with a centered prop (a book, a loose sheet of paper…) meant to hold
+    /// the clue text, so cropping it down to a small banner (the previous
+    /// design) wasted the shot. Falls back to a plain gradient + icon if the
+    /// room is unknown (shouldn't happen in practice — `lastChosenRoom` is
+    /// set right before every `chooseRoom` call) or its clue photo is
+    /// missing, since there's no photo to go full-screen with in that case.
     private func roomFindingView(_ finding: RoomFinding, secondsRemaining: Int) -> some View {
-        HStack(spacing: 40) {
-            // Left side: Timer
-            VStack {
-                Text("\(secondsRemaining)")
-                    .font(.system(size: 60, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: 120, height: 120)
-                    .background(roomFindingIconColor(finding).opacity(0.2), in: Circle())
-                    .overlay(Circle().strokeBorder(roomFindingIconColor(finding), lineWidth: 4))
-                    .shadow(color: roomFindingIconColor(finding).opacity(0.5), radius: 10)
+        ZStack {
+            if let room = lastChosenRoom, let uiImage = UIImage(named: room.clueAsset) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .ignoresSafeArea()
+
+                // Scrim behind the text only, not the whole photo — a
+                // radial gradient centered on the screen (where the photo's
+                // own book/paper prop sits) keeps the clue legible without
+                // dimming the rest of the shot.
+                RadialGradient(
+                    colors: [.black.opacity(0.78), .black.opacity(0.2), .clear],
+                    center: .center,
+                    startRadius: 10,
+                    endRadius: 340
+                )
+                .ignoresSafeArea()
+            } else {
+                LinearGradient(colors: [.black, .phoenixCard], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
             }
 
-            // Right side: Content Card
-            VStack(spacing: 16) {
+            VStack(spacing: 10) {
                 Image(systemName: roomFindingIcon(finding))
-                    .font(.system(size: 50))
-                    .foregroundStyle(roomFindingIconColor(finding))
-                    .shadow(color: roomFindingIconColor(finding).opacity(0.5), radius: 10)
-                
-                VStack(spacing: 8) {
-                    switch finding {
-                    case .clue(let clue):
-                        Text(clue.title)
-                            .font(.system(size: 24, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text(clue.text)
-                            .font(.system(size: 16, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    case .empty:
-                        Text("This area is clear")
-                            .font(.system(size: 24, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text("Nothing to see here. Time to move on.")
-                            .font(.system(size: 16, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.7))
-                    case .hiddenByPenalty:
-                        Text("Visibility compromised")
-                            .font(.system(size: 24, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text("You were too slow in the emergency task. Any clues here are hidden in darkness.")
-                            .font(.system(size: 16, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(14)
+                    .background(roomFindingIconColor(finding), in: Circle())
+                    .shadow(color: roomFindingIconColor(finding).opacity(0.6), radius: 12)
+
+                switch finding {
+                case .clue(let clue):
+                    Text(clue.title)
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                    Text(clue.text)
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .empty:
+                    Text("This area is clear")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Nothing to see here. Time to move on.")
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.8))
+                case .hiddenByPenalty:
+                    Text("Visibility compromised")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("You were too slow in the emergency task. Any clues here are hidden in darkness.")
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, 30)
-            .padding(.vertical, 20)
-            .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.4), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
-            )
-            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+            .padding(.horizontal, 70)
+            .shadow(color: .black.opacity(0.6), radius: 12)
+
+            // Reading-time cooldown, now a small corner badge instead of
+            // the old 120×120 circle — the photo itself is the focus of
+            // this screen now, not a two-column layout.
+            VStack {
+                HStack {
+                    Spacer()
+                    Text("\(secondsRemaining)")
+                        .font(.system(size: 20, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(roomFindingIconColor(finding).opacity(0.35), in: Circle())
+                        .overlay(Circle().strokeBorder(roomFindingIconColor(finding), lineWidth: 3))
+                        .shadow(color: roomFindingIconColor(finding).opacity(0.5), radius: 8)
+                }
+                Spacer()
+            }
+            .padding(20)
         }
-        .padding(.horizontal, 40)
     }
 
     private func roomFindingIcon(_ finding: RoomFinding) -> String {
@@ -1021,62 +1229,63 @@ struct ContentView: View {
     /// once instead of needing an outer vertical `ScrollView`.
     private var notebookView: some View {
         HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("SUSPECT DATABASE")
-                    .font(.system(size: 20, weight: .black, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .tracking(3)
+            VStack(spacing: 12) {
+                // Everything here is variable-height (clue count grows
+                // across the game, room recap/banners come and go) — wrapped
+                // in a `ScrollView` instead of a plain content-sized `VStack`
+                // so that growth scrolls instead of collapsing the old
+                // `Spacer(minLength: 0)` to zero and shoving `voteButton`
+                // below, or off, the visible area.
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("SUSPECT DATABASE")
+                            .font(.system(size: 20, weight: .black, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .tracking(3)
 
-                Text("ROUND \(client.roundNumber)")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.phoenixMuted)
-                    .tracking(2)
+                        Text("ROUND \(client.roundNumber)")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.phoenixMuted)
+                            .tracking(2)
 
-                Label("Tap a suspect to mark them with an X once the clues rule them out.", systemImage: "xmark.circle")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
+                        Label("Tap a suspect to mark them with an X once the clues rule them out.", systemImage: "xmark.circle")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
 
-                if let accusation = client.lastAccusation, !accusation.wasCorrect, accusation.playerID == client.localPlayerID {
-                    wrongAccusationBanner(accusation)
+                        if let accusation = client.lastAccusation, !accusation.wasCorrect, accusation.playerID == client.localPlayerID {
+                            wrongAccusationBanner(accusation)
+                        }
+
+                        if client.roomVisitLog.contains(where: { $0.playerID == client.localPlayerID }) {
+                            roomVisitRecap
+                        }
+
+                        if !collectedClues.isEmpty {
+                            cluesSection
+                        }
+
+                        if !client.failedAccusationPlayerIDs.isEmpty {
+                            Label(
+                                "\(client.failedAccusationPlayerIDs.count) failed accusation\(client.failedAccusationPlayerIDs.count == 1 ? "" : "s") this round",
+                                systemImage: "xmark.seal.fill"
+                            )
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.phoenixMuted)
+                        }
+                    }
                 }
 
-                if !client.roomVisitLog.isEmpty {
-                    roomVisitRecap
-                }
-
-                if !client.failedAccusationPlayerIDs.isEmpty {
-                    Label(
-                        "\(client.failedAccusationPlayerIDs.count) failed accusation\(client.failedAccusationPlayerIDs.count == 1 ? "" : "s") this round",
-                        systemImage: "xmark.seal.fill"
-                    )
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.phoenixMuted)
-                }
-
-                Spacer(minLength: 0)
-
+                // Fixed footer, outside the scroll — always reachable at
+                // the same spot regardless of how much clue/banner content
+                // is above it.
                 if client.isCurrentRoundBlackout {
                     Text("VOTING OFFLINE - BLACKOUT")
                         .font(.system(size: 14, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color.phoenixGold)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    let hasFailed = client.failedAccusationPlayerIDs.contains(client.localPlayerID)
-                    Button {
-                        Haptics.notify(.warning)
-                        client.startVoting()
-                    } label: {
-                        Text(hasFailed ? "ACCUSATION FAILED" : "INITIATE ACCUSATION")
-                            .font(.system(size: 15, weight: .black, design: .monospaced))
-                            .foregroundStyle(hasFailed ? .white.opacity(0.5) : .black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(hasFailed ? Color.red.opacity(0.3) : Color.phoenixDestructive)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(hasFailed)
+                    voteButton
                 }
             }
             .frame(width: 200)
@@ -1098,8 +1307,8 @@ struct ContentView: View {
                             borderColor: isKnownInnocent ? .white.opacity(0.3) : (isManuallyExcluded ? .red : suspect.color.color),
                             borderWidth: 2,
                             showXMark: isManuallyExcluded,
-                            width: 140,
-                            portraitHeight: 175,
+                            width: 170,
+                            portraitHeight: 215,
                             onTap: {
                                 guard !isKnownInnocent else { return }
                                 Haptics.impact(.light)
@@ -1108,8 +1317,7 @@ struct ContentView: View {
                                 } else {
                                     excludedSuspectIDs.insert(suspect.id)
                                 }
-                            },
-                            onShowDetail: { suspectDetail = suspect }
+                            }
                         )
                     }
                 }
@@ -1119,23 +1327,103 @@ struct ContentView: View {
         }
     }
 
-    /// Compact reminder of which rooms this round's turn order has already
-    /// explored — the full detail (who found what) stays private to each
-    /// player, but *which* rooms were visited is already public (shown live
-    /// during `.roomSelection`); repeating it here helps anyone who reaches
-    /// the notebook having missed that board.
+    /// Compact reminder of which room *this player* explored this round —
+    /// deliberately shows only the local player's own pick, not the rest of
+    /// `roomVisitLog` (the shared, public log of every player's pick):
+    /// showing other players' rooms here read as spoiler-adjacent noise
+    /// (and could be misread as "the app got someone's room wrong" if a
+    /// player forgot who went where), when this screen is about this
+    /// player's own progress.
     private var roomVisitRecap: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("ROOMS EXPLORED")
+        Group {
+            if let myVisit = client.roomVisitLog.first(where: { $0.playerID == client.localPlayerID }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("YOUR ROOM")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.phoenixMuted)
+                        .tracking(1)
+
+                    Text(myVisit.roomID.displayName)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+    }
+
+    /// Every distinct clue this player has personally found so far this
+    /// game — see `collectedClues`. Persists across rounds (unlike
+    /// `roomFindingView`'s 10-second reveal), so a player can always check
+    /// back on what they've actually learned instead of having to remember
+    /// it from a screen that already disappeared.
+    private var cluesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("YOUR CLUES (\(collectedClues.count)/2)")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.phoenixMuted)
                 .tracking(1)
 
-            Text(client.roomVisitLog.map(\.roomID.displayName).joined(separator: ", "))
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.8))
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(collectedClues.enumerated()), id: \.offset) { _, entry in
+                    HStack(spacing: 8) {
+                        if let uiImage = UIImage(named: entry.room.clueAsset) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 28, height: 28)
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
+                        Text(entry.clue.title)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                }
+            }
         }
+    }
+
+    /// The "cast an accusation" button — one of four mutually exclusive
+    /// states: already failed this round, serving next-round's penalty for
+    /// a *previous* round's wrong guess (see `GameSession.votingBanRoundNumbers`),
+    /// still short of the 2 clues needed to accuse at all, or free to vote.
+    private var voteButton: some View {
+        let hasFailed = client.failedAccusationPlayerIDs.contains(client.localPlayerID)
+        let isBanned = client.votingBanRoundNumbers[client.localPlayerID] == client.roundNumber
+        let hasEnoughClues = collectedClues.count >= 2
+        let isDisabled = hasFailed || isBanned || !hasEnoughClues
+
+        return Button {
+            Haptics.notify(.warning)
+            client.startVoting()
+        } label: {
+            Text(voteButtonText(hasFailed: hasFailed, isBanned: isBanned, hasEnoughClues: hasEnoughClues))
+                .font(.system(size: 15, weight: .black, design: .monospaced))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(isDisabled ? .white.opacity(0.5) : .black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(voteButtonBackground(hasFailed: hasFailed, isBanned: isBanned, hasEnoughClues: hasEnoughClues))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+
+    private func voteButtonText(hasFailed: Bool, isBanned: Bool, hasEnoughClues: Bool) -> String {
+        if hasFailed { return "ACCUSATION FAILED" }
+        if isBanned { return "SKIPPING THIS ROUND\n(wrong guess last round)" }
+        if !hasEnoughClues { return "COLLECT ALL 2 CLUES (\(collectedClues.count)/2)" }
+        return "INITIATE ACCUSATION"
+    }
+
+    /// A wrong guess (this round or last) stays visually distinct — a muted
+    /// red — from simply not having found every clue yet, which isn't a
+    /// failure state and gets a neutral, non-alarming tint instead.
+    private func voteButtonBackground(hasFailed: Bool, isBanned: Bool, hasEnoughClues: Bool) -> Color {
+        if hasFailed || isBanned { return Color.red.opacity(0.3) }
+        if !hasEnoughClues { return Color.white.opacity(0.08) }
+        return Color.phoenixDestructive
     }
 
     private func wrongAccusationBanner(_ accusation: Accusation) -> some View {
@@ -1223,6 +1511,10 @@ struct ContentView: View {
                 .frame(width: 200)
                 .padding(.leading, 24)
                 .padding(.vertical, 20)
+                // Extra top padding clears the persistent top-leading
+                // `leaveGameButton` overlay, which otherwise sits directly on
+                // top of this title.
+                .padding(.top, 28)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
@@ -1243,8 +1535,7 @@ struct ContentView: View {
                                 onTap: {
                                     Haptics.impact(.medium)
                                     accusationCandidate = suspect
-                                },
-                                onShowDetail: { suspectDetail = suspect }
+                                }
                             )
                             .shadow(color: isSelected ? .white.opacity(0.5) : .clear, radius: 10)
                         }
@@ -1334,9 +1625,12 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     profileCard
                     readyButton
-                    #if DEBUG
-                    minigameDebugButton
-                    #endif
+                    // Debug-only minigame shortcut — commented out so it never
+                    // shows, even in debug builds. Uncomment to bring it back
+                    // during development.
+                    // #if DEBUG
+                    // minigameDebugButton
+                    // #endif
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity)
@@ -1379,8 +1673,9 @@ struct ContentView: View {
     /// is just a lightweight way to fix a typo, not the primary prompt.
     private var profileCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Your detective name", systemImage: "person.text.rectangle.fill")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+            Text("AGENT ALIAS")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(2)
                 .foregroundStyle(.phoenixMuted)
 
             TextField("Your name", text: $nickname)
@@ -1399,6 +1694,7 @@ struct ContentView: View {
         }
         .padding(16)
         .phoenixCardStyle(cornerRadius: 16)
+        .overlay(CornerBrackets(color: .white.opacity(0.18), length: 12, thickness: 1.5, inset: 5))
     }
 
     private var readyButton: some View {
@@ -1442,8 +1738,9 @@ struct ContentView: View {
     private var playersCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Connected players", systemImage: "person.2.fill")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                Text("AGENT ROSTER")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .tracking(2)
                     .foregroundStyle(.white)
 
                 Spacer()
@@ -1467,15 +1764,23 @@ struct ContentView: View {
                         Text(player.nickname)
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundStyle(.white)
+                            .lineLimit(1)
 
                         Spacer()
 
-                        Label(
-                            player.isReady ? "Ready" : "Waiting",
-                            systemImage: player.isReady ? "checkmark.circle.fill" : "clock.fill"
-                        )
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(player.isReady ? .phoenixGreen : .phoenixMuted)
+                        Text(player.isReady ? "READY" : "STANDBY")
+                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                            .tracking(1.5)
+                            .foregroundStyle(player.isReady ? Color.black : .phoenixMuted)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                player.isReady ? Color.phoenixGreen : Color.white.opacity(0.06),
+                                in: Capsule()
+                            )
+                            .overlay(
+                                Capsule().strokeBorder(player.isReady ? .clear : .white.opacity(0.15), lineWidth: 1)
+                            )
                     }
                     .padding(.vertical, 4)
                 }
@@ -1483,6 +1788,7 @@ struct ContentView: View {
         }
         .padding(20)
         .phoenixCardStyle()
+        .overlay(CornerBrackets(color: .white.opacity(0.18), length: 14, thickness: 1.5, inset: 6))
     }
 
     /// Sends the current nickname to the host: a `join` the first time
@@ -1597,11 +1903,7 @@ struct SuspectPortraitView: View {
 /// name plate in their case color, "RULED OUT" treatment once a wrong
 /// accusation confirms them innocent) but differ in what the main tap does
 /// (toggle exclude vs. pick as accusation candidate) and how the border
-/// reacts (manual-exclude red vs. picker-selection highlight). The small
-/// "i" button in the corner is a separate tap target from the card's main
-/// action, opening the full-screen `SuspectDetailView` (role, description,
-/// case color, evidence traits) — real content that used to be unreachable
-/// since nothing ever set `suspectDetail`.
+/// reacts (manual-exclude red vs. picker-selection highlight).
 private struct SuspectCardButton: View {
     let suspect: Suspect
     let isKnownInnocent: Bool
@@ -1611,110 +1913,44 @@ private struct SuspectCardButton: View {
     let width: CGFloat
     let portraitHeight: CGFloat
     let onTap: () -> Void
-    let onShowDetail: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Button(action: onTap) {
-                VStack(spacing: 0) {
-                    // Full portrait, never cropped — see `SuspectPortraitView`.
-                    SuspectPortraitView(suspect: suspect)
-                        .frame(width: width, height: portraitHeight)
-                        .grayscale(isKnownInnocent ? 1 : 0)
-                        .opacity(isKnownInnocent || showXMark ? 0.3 : 1.0)
+        Button(action: onTap) {
+            VStack(spacing: 0) {
+                // Full portrait, never cropped — see `SuspectPortraitView`.
+                SuspectPortraitView(suspect: suspect)
+                    .frame(width: width, height: portraitHeight)
+                    .grayscale(isKnownInnocent ? 1 : 0)
+                    .opacity(isKnownInnocent || showXMark ? 0.3 : 1.0)
 
-                    Text(suspect.name.uppercased())
-                        .font(.system(size: 16, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .frame(height: 42)
-                        .frame(maxWidth: .infinity)
-                        .background(suspect.color.color.opacity(0.8))
-                }
-                .frame(width: width)
-                .background(Color.black)
-                .overlay(Rectangle().strokeBorder(borderColor, lineWidth: borderWidth))
-                .overlay {
-                    if isKnownInnocent {
-                        VStack(spacing: 6) {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 34, weight: .black))
-                            Text("RULED OUT")
-                                .font(.system(size: 12, weight: .black, design: .monospaced))
-                        }
-                        .foregroundStyle(.white.opacity(0.85))
-                    } else if showXMark {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 64, weight: .black))
-                            .foregroundStyle(.red)
+                Text(suspect.name.uppercased())
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .frame(height: 42)
+                    .frame(maxWidth: .infinity)
+                    .background(suspect.color.color.opacity(0.8))
+            }
+            .frame(width: width)
+            .background(Color.black)
+            .overlay(Rectangle().strokeBorder(borderColor, lineWidth: borderWidth))
+            .overlay {
+                if isKnownInnocent {
+                    VStack(spacing: 6) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 34, weight: .black))
+                        Text("RULED OUT")
+                            .font(.system(size: 12, weight: .black, design: .monospaced))
                     }
+                    .foregroundStyle(.white.opacity(0.85))
+                } else if showXMark {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 64, weight: .black))
+                        .foregroundStyle(.red)
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(isKnownInnocent)
-
-            Button(action: onShowDetail) {
-                Image(systemName: "info.circle.fill")
-                    .font(.system(size: 20))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.55))
-            }
-            .buttonStyle(.plain)
-            .padding(6)
-            .accessibilityLabel("\(suspect.name) details")
         }
-    }
-}
-
-/// Full-screen portrait + details for a suspect, opened from `SuspectRow`'s
-/// info button in the notebook.
-private struct SuspectDetailView: View {
-    let suspect: Suspect
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 20) {
-            HStack {
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.phoenixMuted)
-                }
-            }
-
-            SuspectPortraitView(suspect: suspect)
-                .frame(height: 320)
-
-            Text(suspect.name)
-                .font(.system(size: 28, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text(suspect.role)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundStyle(.phoenixGold)
-
-            Text(suspect.detail)
-                .font(.system(size: 16, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            VStack(alignment: .leading, spacing: 10) {
-                CaseColorTag(color: suspect.color)
-                EvidenceTraitList(suspect: suspect)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .phoenixCardStyle(cornerRadius: 16)
-            .padding(.horizontal, 24)
-
-            Spacer()
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.phoenixBackground.ignoresSafeArea())
+        .buttonStyle(.plain)
+        .disabled(isKnownInnocent)
     }
 }
 

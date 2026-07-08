@@ -8,18 +8,26 @@
 import SwiftUI
 import CrackTheCaseCore
 
-/// Shared Phoenix Academy palette: felt-board green + gold on dark navy, chosen
-/// to read as a friendly detective-board game rather than a gritty crime
-/// scene. Kept identical to the iOS target's palette so both screens feel
-/// like the same game.
+/// Shared "Detective Vintage" palette: dark leather/walnut background, aged
+/// brass accent, muted parchment-cream secondary text, and a deep bordeaux
+/// for anything destructive/wrong — chosen to read as an old case file on a
+/// detective's desk rather than a bright family board game. Kept identical
+/// to the iOS target's palette so both screens feel like the same game.
+///
+/// `phoenixGreen`/`phoenixGreenDark` and `phoenixDestructive` keep their
+/// existing *semantic* roles (success/ready vs. error/wrong/danger) used
+/// throughout the app — only their hues shifted to fit this palette (a
+/// muted olive instead of a bright emerald, a deep bordeaux instead of a
+/// saturated modern red). Every call site that already reached for
+/// "green = good" / "red = bad" needed no changes.
 extension Color {
-    static let phoenixBackground = Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255)
-    static let phoenixCard = Color(red: 25 / 255, green: 33 / 255, blue: 52 / 255)
-    static let phoenixGreen = Color(red: 21 / 255, green: 128 / 255, blue: 61 / 255)
-    static let phoenixGreenDark = Color(red: 22 / 255, green: 101 / 255, blue: 52 / 255)
-    static let phoenixGold = Color(red: 217 / 255, green: 119 / 255, blue: 6 / 255)
-    static let phoenixMuted = Color(red: 148 / 255, green: 163 / 255, blue: 184 / 255)
-    static let phoenixDestructive = Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255)
+    static let phoenixBackground = Color(red: 28 / 255, green: 22 / 255, blue: 17 / 255)
+    static let phoenixCard = Color(red: 42 / 255, green: 33 / 255, blue: 24 / 255)
+    static let phoenixGreen = Color(red: 90 / 255, green: 122 / 255, blue: 74 / 255)
+    static let phoenixGreenDark = Color(red: 63 / 255, green: 90 / 255, blue: 56 / 255)
+    static let phoenixGold = Color(red: 201 / 255, green: 154 / 255, blue: 59 / 255)
+    static let phoenixMuted = Color(red: 168 / 255, green: 150 / 255, blue: 125 / 255)
+    static let phoenixDestructive = Color(red: 122 / 255, green: 31 / 255, blue: 43 / 255)
 
     // The 6 "case colors" shared by player badges (`Avatar`) and suspect
     // evidence profiles (`Suspect.color`). Green and Red reuse the existing
@@ -167,10 +175,6 @@ struct SettingsSheet: View {
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
             }
 
-            Text("Music and sound effects are coming soon — these toggles are ready for when they arrive.")
-                .font(.system(size: 16, design: .rounded))
-                .foregroundStyle(.phoenixMuted)
-
             Spacer()
         }
         .padding(48)
@@ -196,5 +200,86 @@ extension View {
             )
             .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 10)
             .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
+    }
+}
+
+/// A `ButtonStyle` for primary actions on the tvOS board, built on `.plain`
+/// semantics instead of `.bordered`/`.borderedProminent`. This SDK's focus
+/// engine has repeatedly failed to let the Siri Remote navigate onto (or
+/// off of) buttons using non-`.plain` styles — see `quitToHomeButton`'s doc
+/// comment for the matching story with `.card` — while `.plain` has a clean
+/// track record everywhere else in this file (the home screen's "NEW GAME"/
+/// "SETTINGS" buttons, `quitToHomeButton` itself). Every primary action
+/// button (victory/defeat "Play Again", "Back to lobby", the rules "Got it"/
+/// "Close", the intro video "Skip") uses this instead of the system bordered
+/// styles for that reason.
+/// Thin viewfinder-style corner brackets drawn at each corner of whatever
+/// view it's applied to via `.overlay(CornerBrackets(...))` — the shared
+/// visual motif tying together the "case-file dossier" lobby (player cards,
+/// the empty-lobby placeholder) and the "security camera" room board tiles.
+struct CornerBrackets: View {
+    var color: Color = .white.opacity(0.6)
+    var length: CGFloat = 16
+    var thickness: CGFloat = 2
+    var inset: CGFloat = 6
+
+    private enum Corner {
+        case topLeading, topTrailing, bottomLeading, bottomTrailing
+    }
+
+    private func bracket(_ corner: Corner) -> some View {
+        Path { path in
+            switch corner {
+            case .topLeading:
+                path.move(to: CGPoint(x: 0, y: length))
+                path.addLine(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: length, y: 0))
+            case .topTrailing:
+                path.move(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: length, y: 0))
+                path.addLine(to: CGPoint(x: length, y: length))
+            case .bottomLeading:
+                path.move(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: 0, y: length))
+                path.addLine(to: CGPoint(x: length, y: length))
+            case .bottomTrailing:
+                path.move(to: CGPoint(x: length, y: 0))
+                path.addLine(to: CGPoint(x: length, y: length))
+                path.addLine(to: CGPoint(x: 0, y: length))
+            }
+        }
+        .stroke(color, style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+        .frame(width: length, height: length)
+    }
+
+    var body: some View {
+        VStack {
+            HStack {
+                bracket(.topLeading)
+                Spacer()
+                bracket(.topTrailing)
+            }
+            Spacer()
+            HStack {
+                bracket(.bottomLeading)
+                Spacer()
+                bracket(.bottomTrailing)
+            }
+        }
+        .padding(inset)
+        .allowsHitTesting(false)
+    }
+}
+
+struct PhoenixTVButtonStyle: ButtonStyle {
+    var tint: Color
+    var cornerRadius: CGFloat = 16
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 16)
+            .background(tint, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }

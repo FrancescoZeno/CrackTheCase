@@ -1,4 +1,5 @@
 import UIKit
+import AudioToolbox
 import CrackTheCaseCore
 
 /// Centralized haptic feedback for every phone screen and minigame.
@@ -45,6 +46,18 @@ enum Haptics {
         guard GameSettings.isHapticsEnabled() else { return }
         notification.notificationOccurred(type)
         notification.prepare()
+    }
+
+    /// Fires the phone's actual vibration motor via `AudioServices`, not the
+    /// Taptic Engine. `UIImpactFeedbackGenerator`/`UINotificationFeedbackGenerator`
+    /// (used by `impact`/`notify` above) go completely silent when the user
+    /// has System Haptics turned off in Settings — the most common reason
+    /// the Black-out alarm "doesn't vibrate" on a real device.
+    /// `kSystemSoundID_Vibrate` bypasses that setting, so it's used for the
+    /// Black-out reveal/pulse specifically, where a felt alarm matters.
+    static func vibrate() {
+        guard GameSettings.isHapticsEnabled() else { return }
+        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
     }
 
     private static func generator(for style: UIImpactFeedbackGenerator.FeedbackStyle) -> UIImpactFeedbackGenerator {

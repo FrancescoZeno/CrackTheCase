@@ -30,11 +30,11 @@ public final class GameSession {
     /// for the skip-grace-period deadline (see `minigameSkipGracePeriod`)
     /// and broadcasts it so every phone can render the same countdown.
     public var minigameFirstFinishAt: Date?
-    /// Which of the 13 turn-order minigames is being played this round,
+    /// Which of the 12 turn-order minigames is being played this round,
     /// re-rolled at random every time `beginMinigame()` runs.
     public var turnMinigame: TurnMinigame = TurnMinigame.allCases.randomElement()!
     /// Turn-order minigames already played, so `beginMinigame()` cycles
-    /// through all 13 once each before any repeat. Deliberately **not**
+    /// through all 12 once each before any repeat. Deliberately **not**
     /// cleared by `resetToLobby()` — variety keeps accumulating across
     /// "Play Again" games too, only resetting once every minigame has come
     /// up at least once since the last reset.
@@ -48,6 +48,27 @@ public final class GameSession {
     /// penalized in the same round (e.g. two people skip before the last
     /// legitimate finisher arrives).
     public var penalizedPlayerIDs: Set<UUID> = []
+
+    /// Cumulative points earned across every round's turn-order minigame,
+    /// keyed by player id — host-local only (never broadcast; the tvOS board
+    /// is the only screen that shows the end-of-game ranking derived from
+    /// it, same as `GameStats`' win counter). Only awarded by
+    /// `recordMinigameFinish(id:)`, i.e. for actually solving the minigame —
+    /// `skipMinigame(id:)` awards nothing on top of its existing clue
+    /// penalty, so giving up can never out-score a slow-but-real finish.
+    /// Reset once per game by `resetToLobby()`; a fresh `GameSession` (a
+    /// brand-new "New Game", as opposed to "Play Again") starts empty by
+    /// construction.
+    public private(set) var minigameScores: [UUID: Int] = [:]
+
+    /// Players ordered by `minigameScores`, highest first (ties keep each
+    /// player's original `players` order, since `sorted(by:)` is stable).
+    /// Drives the end-of-game ranking shown alongside the win leaderboard —
+    /// the last player in this list is the one who receives the "PENITENZA"
+    /// badge for the game as a whole.
+    public var finalRanking: [Player] {
+        players.sorted { (minigameScores[$0.id] ?? 0) > (minigameScores[$1.id] ?? 0) }
+    }
 
     /// How long after the first player finishes the turn-order minigame the
     /// host waits before auto-skipping everyone still stuck — see
@@ -83,7 +104,7 @@ public final class GameSession {
         guard let suspect = Suspects.all.first(where: { $0.id == culpritID }) else { return [:] }
         let traits = Array(suspect.traits)
         var assignments: [RoomID: Clue] = [:]
-        let startingRooms: [RoomID] = [.cafeteria, .dormitory, .headmasterOffice]
+        let startingRooms: [RoomID] = [.cafeteria, .dormitory, .secretaryOffice]
         for (i, trait) in traits.enumerated() {
             if i < startingRooms.count {
                 assignments[startingRooms[i]] = Clue(title: trait.displayName, text: trait.genericDescription)
@@ -110,7 +131,7 @@ public final class GameSession {
     /// its notebook phase with nobody having accused the actual culprit,
     /// `beginNextRound()` ends the game in `.defeat` instead of starting
     /// another round.
-    public static let maxRoundNumber = 10
+    public static let maxRoundNumber = 15
     /// The round on which the Black-out event triggers. Randomized 3-5 at
     /// session creation — every game gets exactly one Black-out, but players
     /// can't predict which round it'll land on.
@@ -143,6 +164,18 @@ public final class GameSession {
 
     /// Players who have already made a wrong accusation this round.
     public var failedAccusationPlayerIDs: Set<UUID> = []
+
+    /// For each player who has ever made a wrong accusation, the round
+    /// number during which they're barred from voting again — set to the
+    /// round *after* the wrong guess in `castAccusation(playerID:suspectID:)`
+    /// and checked in `startVoting(playerID:)`. Distinct from
+    /// `failedAccusationPlayerIDs` (which only blocks re-voting for the rest
+    /// of the *same* round a wrong guess happened in, and resets every
+    /// round): this is the one-round "sit out" penalty that actually carries
+    /// into the *next* round, then lifts on its own — nothing needs to
+    /// explicitly clear an entry once `roundNumber` moves past it, so stale
+    /// entries are harmless and left in place until `resetToLobby()`.
+    public var votingBanRoundNumbers: [UUID: Int] = [:]
 
     /// True while the current round is the one designated for the Black-out
     /// event.
@@ -199,6 +232,7 @@ public final class GameSession {
         }
 
         penalizedPlayerIDs.remove(id)
+        minigameScores.removeValue(forKey: id)
 
         if votingPlayerID == id {
             // Don't leave everyone else locked out waiting for a vote that
@@ -242,6 +276,7 @@ public final class GameSession {
         minigameFinishOrder = []
         minigameFirstFinishAt = nil
         penalizedPlayerIDs = []
+        minigameScores = [:]
         turnOrder = []
         currentTurnIndex = 0
         roomVisitLog = []
@@ -249,6 +284,12 @@ public final class GameSession {
 
         votingPlayerID = nil
         lastAccusation = nil
+        // A wrong accusation from the previous game's last round(s)
+        // shouldn't carry into a fresh "Play Again" game and block voting
+        // (or show a stale "ACCUSATION FAILED") before anyone's had a
+        // chance to guess this time.
+        failedAccusationPlayerIDs = []
+        votingBanRoundNumbers = [:]
 
         blackoutTaskStartedAt = nil
         blackoutTaskFinishedPlayerIDs = []
@@ -278,9 +319,9 @@ public final class GameSession {
 
     /// Transitions into `.minigame`, clears any previous round's progress,
     /// and rolls a fresh `turnMinigame` for this round — drawn from
-    /// whichever of the 13 haven't appeared yet, so none repeats until
+    /// whichever of the 12 haven't appeared yet, so none repeats until
     /// every one of them has had a turn. Once the pool is exhausted, it
-    /// reshuffles (all 13 become available again) before drawing.
+    /// reshuffles (all 12 become available again) before drawing.
     public func beginMinigame() {
         phase = .minigame
         minigameFinishOrder = []
@@ -316,6 +357,10 @@ public final class GameSession {
             minigameFirstFinishAt = Date()
         }
         minigameFinishOrder.append(id)
+        // Faster real finishes earn more points toward `finalRanking`;
+        // arriving dead last still earns 1, since only `skipMinigame(id:)`
+        // (giving up) scores nothing.
+        minigameScores[id, default: 0] += max(players.count - minigameFinishOrder.count + 1, 1)
         if minigameFinishOrder.count == players.count {
             penalizedPlayerIDs.insert(id)
         }
@@ -527,14 +572,20 @@ public final class GameSession {
 
     // MARK: - Final accusation (Phase 5)
 
-    /// Starts a vote, unless someone else is already voting or the game
-    /// isn't currently in the notebook phase — this is also what keeps a
-    /// stray/delayed `.startVoting` from hijacking the phase mid-Black-out
-    /// or during any other phase, since voting is only ever meant to be
-    /// reachable from the notebook. Returns whether the vote was allowed to
-    /// start.
+    /// Starts a vote, unless someone else is already voting, the game isn't
+    /// currently in the notebook phase, or this player is currently serving
+    /// a wrong-guess penalty — either the same-round block
+    /// (`failedAccusationPlayerIDs`) or the following-round "sit out"
+    /// (`votingBanRoundNumbers`, see its doc comment). This is also what
+    /// keeps a stray/delayed `.startVoting` from hijacking the phase
+    /// mid-Black-out or during any other phase, since voting is only ever
+    /// meant to be reachable from the notebook. Returns whether the vote was
+    /// allowed to start.
     public func startVoting(playerID: UUID) -> Bool {
-        guard phase == .notebook, votingPlayerID == nil, !failedAccusationPlayerIDs.contains(playerID) else { return false }
+        guard phase == .notebook, votingPlayerID == nil,
+              !failedAccusationPlayerIDs.contains(playerID),
+              votingBanRoundNumbers[playerID] != roundNumber
+        else { return false }
         votingPlayerID = playerID
         phase = .voting
         return true
@@ -543,8 +594,9 @@ public final class GameSession {
     /// Resolves the current vote. Ignores accusations from anyone other
     /// than the player who started it. A correct accusation ends the game
     /// (`.victory`); a wrong one returns to `.notebook` with `lastAccusation`
-    /// set so everyone sees the outcome. Returns whether the accusation was
-    /// correct.
+    /// set so everyone sees the outcome, and bars that player from voting
+    /// again during the *next* round (see `votingBanRoundNumbers`). Returns
+    /// whether the accusation was correct.
     @discardableResult
     public func castAccusation(playerID: UUID, suspectID: String) -> Bool {
         guard votingPlayerID == playerID else { return false }
@@ -554,6 +606,7 @@ public final class GameSession {
         votingPlayerID = nil
         if !correct {
             failedAccusationPlayerIDs.insert(playerID)
+            votingBanRoundNumbers[playerID] = roundNumber + 1
         }
         phase = correct ? .victory : .notebook
         return correct

@@ -8,18 +8,26 @@
 import SwiftUI
 import CrackTheCaseCore
 
-/// Shared Phoenix Academy palette: felt-board green + gold on dark navy, chosen
-/// to read as a friendly detective-board game rather than a gritty crime
-/// scene. Kept identical to the tvOS target's palette so both screens feel
-/// like the same game.
+/// Shared "Detective Vintage" palette: dark leather/walnut background, aged
+/// brass accent, muted parchment-cream secondary text, and a deep bordeaux
+/// for anything destructive/wrong — chosen to read as an old case file on a
+/// detective's desk rather than a bright family board game. Kept identical
+/// to the tvOS target's palette so both screens feel like the same game.
+///
+/// `phoenixGreen`/`phoenixGreenDark` and `phoenixDestructive` keep their
+/// existing *semantic* roles (success/ready vs. error/wrong/danger) used
+/// throughout the 12 turn minigames and 3 Black-out tasks — only their hues
+/// shifted to fit this palette (a muted olive instead of a bright emerald, a
+/// deep bordeaux instead of a saturated modern red). Every call site that
+/// already reached for "green = good" / "red = bad" needed no changes.
 extension Color {
-    static let phoenixBackground = Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255)
-    static let phoenixCard = Color(red: 25 / 255, green: 33 / 255, blue: 52 / 255)
-    static let phoenixGreen = Color(red: 21 / 255, green: 128 / 255, blue: 61 / 255)
-    static let phoenixGreenDark = Color(red: 22 / 255, green: 101 / 255, blue: 52 / 255)
-    static let phoenixGold = Color(red: 217 / 255, green: 119 / 255, blue: 6 / 255)
-    static let phoenixMuted = Color(red: 148 / 255, green: 163 / 255, blue: 184 / 255)
-    static let phoenixDestructive = Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255)
+    static let phoenixBackground = Color(red: 28 / 255, green: 22 / 255, blue: 17 / 255)
+    static let phoenixCard = Color(red: 42 / 255, green: 33 / 255, blue: 24 / 255)
+    static let phoenixGreen = Color(red: 90 / 255, green: 122 / 255, blue: 74 / 255)
+    static let phoenixGreenDark = Color(red: 63 / 255, green: 90 / 255, blue: 56 / 255)
+    static let phoenixGold = Color(red: 201 / 255, green: 154 / 255, blue: 59 / 255)
+    static let phoenixMuted = Color(red: 168 / 255, green: 150 / 255, blue: 125 / 255)
+    static let phoenixDestructive = Color(red: 122 / 255, green: 31 / 255, blue: 43 / 255)
 
     // The 6 "case colors" shared by player badges (`Avatar`) and suspect
     // evidence profiles (`Suspect.color`). Green and Red reuse the existing
@@ -93,40 +101,6 @@ struct AvatarBadge: View {
     }
 }
 
-/// A suspect's case color, labeled — e.g. "Blue case".
-struct CaseColorTag: View {
-    let color: Avatar
-    var body: some View {
-        Label("\(color.displayName) case", systemImage: "tag.fill")
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundStyle(color.color)
-    }
-}
-
-/// The physical traces found on a suspect, each described in that suspect's
-/// own case-color flavor text (see `Suspect.description(for:)`) rather than
-/// one generic line shared by everyone with that trait.
-struct EvidenceTraitList: View {
-    let suspect: Suspect
-    var spacing: CGFloat = 6
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            ForEach(EvidenceTrait.allCases.filter { suspect.traits.contains($0) }) { trait in
-                HStack(alignment: .top, spacing: 8) {
-                    Circle()
-                        .fill(suspect.color.color)
-                        .frame(width: 6, height: 6)
-                        .padding(.top, 6)
-                    Text(suspect.description(for: trait))
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.75))
-                }
-            }
-        }
-    }
-}
-
 /// The settings sheet shown on both platforms — toggles for music, sound
 /// effects, and haptics. Music/effects are predisposed for a future audio
 /// pass; only haptics has a real effect today, gating the Black-out task's
@@ -144,8 +118,6 @@ struct SettingsSheet: View {
                     Toggle("Music", isOn: $musicEnabled)
                     Toggle("Sound effects", isOn: $soundEffectsEnabled)
                     Toggle("Phone vibration (Black-out)", isOn: $hapticsEnabled)
-                } footer: {
-                    Text("Music and sound effects are coming soon — these toggles are ready for when they arrive.")
                 }
             }
             .navigationTitle("Settings")
@@ -176,6 +148,65 @@ extension View {
             )
             .shadow(color: .black.opacity(0.35), radius: 14, x: 0, y: 8)
             .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+    }
+}
+
+/// Thin viewfinder-style corner brackets drawn at each corner of whatever
+/// view it's applied to via `.overlay(CornerBrackets(...))` — the "case-file
+/// dossier" visual motif used in the lobby's agent cards. Mirrors the tvOS
+/// target's identical `CornerBrackets` (each target has its own copy since
+/// SwiftUI view code isn't shared through `CrackTheCaseCore`).
+struct CornerBrackets: View {
+    var color: Color = .white.opacity(0.6)
+    var length: CGFloat = 16
+    var thickness: CGFloat = 2
+    var inset: CGFloat = 6
+
+    private enum Corner {
+        case topLeading, topTrailing, bottomLeading, bottomTrailing
+    }
+
+    private func bracket(_ corner: Corner) -> some View {
+        Path { path in
+            switch corner {
+            case .topLeading:
+                path.move(to: CGPoint(x: 0, y: length))
+                path.addLine(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: length, y: 0))
+            case .topTrailing:
+                path.move(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: length, y: 0))
+                path.addLine(to: CGPoint(x: length, y: length))
+            case .bottomLeading:
+                path.move(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: 0, y: length))
+                path.addLine(to: CGPoint(x: length, y: length))
+            case .bottomTrailing:
+                path.move(to: CGPoint(x: length, y: 0))
+                path.addLine(to: CGPoint(x: length, y: length))
+                path.addLine(to: CGPoint(x: 0, y: length))
+            }
+        }
+        .stroke(color, style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+        .frame(width: length, height: length)
+    }
+
+    var body: some View {
+        VStack {
+            HStack {
+                bracket(.topLeading)
+                Spacer()
+                bracket(.topTrailing)
+            }
+            Spacer()
+            HStack {
+                bracket(.bottomLeading)
+                Spacer()
+                bracket(.bottomTrailing)
+            }
+        }
+        .padding(inset)
+        .allowsHitTesting(false)
     }
 }
 

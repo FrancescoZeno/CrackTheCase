@@ -6,46 +6,60 @@ import Foundation
 /// exploration + clue reveal), meant to be swapped for the real story later —
 /// same spirit as the placeholder "Done!" minigame button.
 public enum RoomID: String, Codable, Sendable, CaseIterable, Identifiable {
-    case cafeteria
-    case dormitory
     case library
-    case scienceLab
+    case assemblyHall
+    case cafeteria
     case gym
-    case musicRoom
-    case headmasterOffice
-    case garden
-    case theater
+    case dormitory
+    case computerLab
+    case scienceLab
+    case secretaryOffice
+    case studyHall
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
-        case .cafeteria: return "Cafeteria"
-        case .dormitory: return "Dormitory"
         case .library: return "Library"
-        case .scienceLab: return "Science Lab"
+        case .assemblyHall: return "Assembly Hall"
+        case .cafeteria: return "Cafeteria"
         case .gym: return "Gym"
-        case .musicRoom: return "Computer Lab"
-        case .headmasterOffice: return "Front Office"
-        case .garden: return "Study Hall"
-        case .theater: return "Auditorium"
+        case .dormitory: return "Dormitory"
+        case .computerLab: return "Computer Lab"
+        case .scienceLab: return "Science Lab"
+        case .secretaryOffice: return "Secretary Office"
+        case .studyHall: return "Study Hall"
         }
     }
 
     /// SF Symbol used to represent this room on both tvOS and iOS.
     public var icon: String {
         switch self {
-        case .cafeteria: return "fork.knife"
-        case .dormitory: return "bed.double.fill"
         case .library: return "books.vertical.fill"
-        case .scienceLab: return "flask.fill"
+        case .assemblyHall: return "theatermasks.fill"
+        case .cafeteria: return "fork.knife"
         case .gym: return "figure.run"
-        case .musicRoom: return "desktopcomputer"
-        case .headmasterOffice: return "briefcase.fill"
-        case .garden: return "book.fill"
-        case .theater: return "theatermasks.fill"
+        case .dormitory: return "bed.double.fill"
+        case .computerLab: return "desktopcomputer"
+        case .scienceLab: return "flask.fill"
+        case .secretaryOffice: return "briefcase.fill"
+        case .studyHall: return "book.fill"
         }
     }
+
+    /// Asset catalog imageset name for this room's cover photo, shared by
+    /// both app targets — see `stanze_copertina_scelte/` for the source
+    /// photos and `copy_assets.sh` for how they're placed into each
+    /// target's `Assets.xcassets`.
+    public var coverAsset: String { rawValue }
+
+    /// Asset catalog imageset name for this room's "clue scene" photo —
+    /// shown when a player explores this room, regardless of whether it
+    /// actually holds a clue this game. See `stanze_indizzi/` for the source
+    /// photos and `copy_room_clue_photos.sh` for how they're placed into
+    /// each target's `Assets.xcassets`. Suffixed `"Clue"` so this doesn't
+    /// collide with `coverAsset`'s imageset in the same catalog.
+    public var clueAsset: String { rawValue + "Clue" }
 }
 
 /// A clue found in a room. Placeholder narrative content — swap `title`/`text`

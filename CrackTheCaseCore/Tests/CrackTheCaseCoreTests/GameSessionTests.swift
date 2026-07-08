@@ -230,6 +230,61 @@ struct GameSessionTests {
         #expect(session.penalizedPlayerIDs == [third])
     }
 
+    @Test("recordMinigameFinish awards more points the earlier a player arrives")
+    func recordMinigameFinishAwardsPointsByArrivalOrder() {
+        let session = GameSession()
+        let first = UUID()
+        let second = UUID()
+        let last = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
+        session.upsert(Player(id: last, nickname: "Rosalind", avatar: .yellow, isReady: true))
+        session.beginMinigame()
+
+        session.recordMinigameFinish(id: first)
+        session.recordMinigameFinish(id: second)
+        session.recordMinigameFinish(id: last)
+
+        #expect(session.minigameScores[first] == 3)
+        #expect(session.minigameScores[second] == 2)
+        #expect(session.minigameScores[last] == 1)
+        #expect(session.finalRanking.map(\.id) == [first, second, last])
+    }
+
+    @Test("skipMinigame awards no points on top of its clue penalty")
+    func skipMinigameAwardsNoPoints() {
+        let session = GameSession()
+        let finisher = UUID()
+        let quitter = UUID()
+        session.upsert(Player(id: finisher, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: quitter, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginMinigame()
+
+        session.skipMinigame(id: quitter)
+        session.recordMinigameFinish(id: finisher)
+
+        #expect(session.minigameScores[quitter] == nil)
+        #expect(session.minigameScores[finisher] == 1)
+        #expect(session.finalRanking.first?.id == finisher)
+    }
+
+    @Test("resetToLobby clears cumulative minigame scores")
+    func resetToLobbyClearsMinigameScores() {
+        let session = GameSession()
+        let first = UUID()
+        let second = UUID()
+        session.upsert(Player(id: first, nickname: "Ada", avatar: .blue, isReady: true))
+        session.upsert(Player(id: second, nickname: "Grace", avatar: .green, isReady: true))
+        session.beginMinigame()
+        session.recordMinigameFinish(id: first)
+        session.recordMinigameFinish(id: second)
+        #expect(!session.minigameScores.isEmpty)
+
+        session.resetToLobby()
+
+        #expect(session.minigameScores.isEmpty)
+    }
+
     @Test("recordMinigameFinish sets minigameFirstFinishAt only on the first arrival")
     func recordMinigameFinishSetsFirstFinishOnce() {
         let session = GameSession()
@@ -429,7 +484,7 @@ struct GameSessionTests {
         session.advanceRoomTurn()
         #expect(session.currentTurnPlayerID == second)
 
-        _ = session.recordRoomChoice(playerID: second, room: .garden)
+        _ = session.recordRoomChoice(playerID: second, room: .studyHall)
         session.advanceRoomTurn()
         #expect(session.isRoomSelectionComplete)
         #expect(session.currentTurnPlayerID == nil)
@@ -509,6 +564,49 @@ struct GameSessionTests {
         #expect(session.phase == .notebook)
         #expect(session.votingPlayerID == nil)
         #expect(session.lastAccusation == Accusation(playerID: voter, suspectID: wrongSuspect, wasCorrect: false))
+    }
+
+    @Test("a wrong accusation bars the voter from voting again during the following round only")
+    func castAccusationWrongBansVotingForOneRound() {
+        let session = GameSession()
+        let voter = UUID()
+        let wrongSuspect = Suspects.all.first { $0.id != session.culpritID }!.id
+        session.phase = .notebook
+        session.roundNumber = 2
+        _ = session.startVoting(playerID: voter)
+        _ = session.castAccusation(playerID: voter, suspectID: wrongSuspect)
+
+        // Same round: already blocked by `failedAccusationPlayerIDs`.
+        #expect(!session.startVoting(playerID: voter))
+
+        // Round 3 (the very next round): `failedAccusationPlayerIDs` would
+        // ordinarily have reset by now (it's only ever cleared by the real
+        // `beginNextRound()`, which this test bypasses to isolate
+        // `votingBanRoundNumbers` specifically) — clearing it by hand here
+        // proves the *new* mechanic alone still blocks this round.
+        session.failedAccusationPlayerIDs = []
+        session.roundNumber = 3
+        session.phase = .notebook
+        #expect(!session.startVoting(playerID: voter))
+
+        // Round 4: the one-round penalty has lifted.
+        session.roundNumber = 4
+        #expect(session.startVoting(playerID: voter))
+    }
+
+    @Test("resetToLobby clears both same-round and next-round voting penalties")
+    func resetToLobbyClearsVotingPenalties() {
+        let session = GameSession()
+        let voter = UUID()
+        let wrongSuspect = Suspects.all.first { $0.id != session.culpritID }!.id
+        session.phase = .notebook
+        _ = session.startVoting(playerID: voter)
+        _ = session.castAccusation(playerID: voter, suspectID: wrongSuspect)
+
+        session.resetToLobby()
+
+        #expect(session.failedAccusationPlayerIDs.isEmpty)
+        #expect(session.votingBanRoundNumbers.isEmpty)
     }
 
     @Test("removePlayer of the current voter unblocks everyone back to the notebook")

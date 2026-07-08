@@ -14,7 +14,12 @@ import Observation
 /// `@unchecked Sendable` reflects that we take on that synchronization by hand.
 @Observable
 public final class HostConnectivityService: NSObject, @unchecked Sendable {
-    public let session: GameSession
+    /// Reassigned wholesale by `startNewGame()` to get a fresh room (new join
+    /// code, empty roster) without touching `peerID`/`advertiser` — see that
+    /// method's doc comment for why the transport identity must stay put.
+    /// `@Observable` tracks the reassignment itself, so views reading
+    /// `host.session` still update live.
+    public private(set) var session: GameSession
 
     /// Number of directly connected transport peers. Can momentarily differ
     /// from `session.players.count` around join/disconnect.
@@ -77,6 +82,13 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// for an explicit, intentional teardown — see `pauseAdvertising()` for
     /// the much more common "briefly backgrounded" case, which must **not**
     /// drop live players.
+    ///
+    /// Broadcasts `.kicked` *before* disconnecting: without it, a client's
+    /// transport briefly looks the same as a transient Wi-Fi hiccup, so
+    /// `ClientConnectivityService` would just silently try to reconnect —
+    /// including resending its cached join code — into a session that no
+    /// longer exists, stranding the phone on a spinner instead of dropping
+    /// it back to the "find a host" screen.
     @MainActor
     public func stop() {
         advertiser.stopAdvertisingPeer()
@@ -84,6 +96,51 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             session.disconnect()
         }
         clientSessions.removeAll()
+        playerIDsByPeer.removeAll()
+        for task in pendingRemovals.values {
+            task.cancel()
+        }
+        pendingRemovals.removeAll()
+        pendingRoomFindings.removeAll()
+        minigameDeadlineTask?.cancel()
+        minigameDeadlineTask = nil
+        blackoutDeadlineTask?.cancel()
+        blackoutDeadlineTask = nil
+    }
+
+    /// Starts a brand-new room in place — a fresh join code and an empty
+    /// roster — for the tvOS "New Game" button, **without** touching
+    /// `peerID`/`advertiser`.
+    ///
+    /// This used to be done by throwing away the whole
+    /// `HostConnectivityService` and constructing a new one, which also mints
+    /// a new `MCPeerID`. That broke discovery: every host advertises under
+    /// the same hardcoded display name ("Phoenix Academy"), and
+    /// `ClientConnectivityService` dedupes discovered hosts *by display
+    /// name*, not peer identity (see its `foundPeer` delegate method) — so a
+    /// phone that had already seen the previous game's host held onto that
+    /// now-dead peer sighting and either tried inviting it (stuck
+    /// "Connecting…" forever) or ignored the new peer as a duplicate (stuck
+    /// "Scanning…"). Keeping one stable `MCPeerID`/advertiser for the whole
+    /// app lifetime and only swapping out `session` avoids that entirely.
+    @MainActor
+    public func startNewGame() {
+        session = GameSession()
+        //playerIDsByPeer.removeAll()
+        /*
+        for task in pendingRemovals.values {
+            task.cancel()
+        }
+        pendingRemovals.removeAll()
+        pendingRoomFindings.removeAll()
+        minigameDeadlineTask?.cancel()
+        minigameDeadlineTask = nil
+        blackoutDeadlineTask?.cancel()
+        blackoutDeadlineTask = nil*/
+        /*for clientSession in clientSessions.values {
+            clientSession.disconnect()
+        }*/
+        //clientSessions.removeAll()
     }
 
     /// Stops advertising (so no new "ghost" host lingers) without touching
@@ -214,6 +271,16 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             // Only map the peer once the code checks out, so a `.join` from
             // someone who never passed this gate is silently ignored below.
             if accepted {
+                // If the player reconnected with a new MCPeerID, disconnect their old ghost session immediately
+                // so it doesn't leak or trigger a spurious .notConnected disconnect later.
+                let oldPeers = playerIDsByPeer.filter { $0.value == id && $0.key != peer }.map { $0.key }
+                for oldPeer in oldPeers {
+                    playerIDsByPeer.removeValue(forKey: oldPeer)
+                    if let oldSession = clientSessions.removeValue(forKey: oldPeer) {
+                        oldSession.disconnect()
+                    }
+                }
+                
                 playerIDsByPeer[peer] = id
                 // They're back within the grace period: keep their roster
                 // spot instead of letting the scheduled removal fire.
@@ -346,6 +413,12 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     @MainActor
     private func handleDisconnect(of peer: MCPeerID) {
         guard let playerID = playerIDsByPeer.removeValue(forKey: peer) else { return }
+        
+        // If they already reconnected using a new MCPeerID, they are still in the game.
+        // We shouldn't kick them out just because their old ghost session finally timed out.
+        if playerIDsByPeer.values.contains(playerID) {
+            return
+        }
 
         guard session.phase != .lobby else {
             // Pre-game there's nothing at stake in reconnecting quickly, so
@@ -395,6 +468,7 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
                 votingPlayerID: session.votingPlayerID,
                 lastAccusation: session.lastAccusation,
                 failedAccusationPlayerIDs: session.failedAccusationPlayerIDs,
+                votingBanRoundNumbers: session.votingBanRoundNumbers,
                 roundNumber: session.roundNumber,
                 isCurrentRoundBlackout: session.isCurrentRoundBlackout,
                 blackoutTaskStartedAt: session.blackoutTaskStartedAt,
@@ -521,18 +595,28 @@ extension HostConnectivityService: MCNearbyServiceAdvertiserDelegate {
         invitationHandler: @escaping (Bool, MCSession?) -> Void
     ) {
         // Create a new session specifically for this peer to force a star topology.
-        // This prevents the unstable mesh network formation that causes players
-        // to drop when >2 clients connect using `encryptionPreference: .none`.
-        let newSession = MCSession(peer: self.peerID, securityIdentity: nil, encryptionPreference: .none)
+        // This prevents the unstable mesh network formation that used to cause
+        // players to drop when >2 clients connect — that instability is now
+        // fully addressed by the dedicated per-peer session below, so it no
+        // longer requires `encryptionPreference: .none`. `.required` instead:
+        // real-world reports (and this project's own repeated "stuck on
+        // Connecting" / AWDL `SO_ERROR 60` timeouts) point at unencrypted
+        // MCSessions being *less* reliable at establishing the underlying
+        // peer-to-peer radio link on recent iOS/tvOS, not more — the
+        // encryption handshake seems to help stabilize the AWDL link rather
+        // than just sitting on top of an already-stable one. Must match
+        // `ClientConnectivityService`'s own `encryptionPreference`, or the two
+        // sides' sessions fail to negotiate at all.
+        let newSession = MCSession(peer: self.peerID, securityIdentity: nil, encryptionPreference: .required)
         newSession.delegate = self
-        
+
         Task { @MainActor in
             if let old = self.clientSessions[peerID] {
                 old.disconnect()
             }
             self.clientSessions[peerID] = newSession
         }
-        
+
         invitationHandler(true, newSession)
     }
 }

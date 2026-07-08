@@ -69,6 +69,7 @@ public enum GameMessage: Codable, Sendable, Equatable {
         votingPlayerID: UUID?,
         lastAccusation: Accusation?,
         failedAccusationPlayerIDs: Set<UUID>,
+        votingBanRoundNumbers: [UUID: Int],
         roundNumber: Int,
         isCurrentRoundBlackout: Bool,
         blackoutTaskStartedAt: Date?,

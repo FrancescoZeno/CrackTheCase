@@ -38,6 +38,10 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     /// The most recently resolved vote, if any.
     @MainActor public private(set) var lastAccusation: Accusation?
     @MainActor public private(set) var failedAccusationPlayerIDs: Set<UUID> = []
+    /// For each player who's ever made a wrong accusation, the round number
+    /// during which they're barred from voting again — see
+    /// `GameSession.votingBanRoundNumbers`'s doc comment.
+    @MainActor public private(set) var votingBanRoundNumbers: [UUID: Int] = [:]
     /// 1-indexed count of the current Minigame → Rooms → Notebook cycle.
     @MainActor public private(set) var roundNumber: Int = 1
     /// True while the current round is the Black-out round — voting is
@@ -61,18 +65,14 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     private var peerID: MCPeerID
     private var mcSession: MCSession
     private var browser: MCNearbyServiceBrowser
-    /// Base display name a fresh `MCPeerID` is derived from on every
-    /// `resetTransport()` — see that method for why the identity itself is
-    /// regenerated rather than reused.
-    private let displayNamePrefix: String
-    /// The join code the host most recently accepted. `resetTransport()`
-    /// mints a brand-new `MCPeerID` on every reconnect attempt, which means
-    /// the host's `playerIDsByPeer` mapping for this player is gone even
-    /// though `joinAuthorization` is still `.accepted` — silently resending
-    /// `.requestToJoin` with this cached code (see the `.connected` case in
-    /// `MCSessionDelegate`) re-establishes that mapping and cancels the
-    /// host's disconnect grace-period removal, without bouncing the player
-    /// back to the code-entry screen.
+    /// The join code the host most recently accepted. Even with `peerID`
+    /// kept stable across `resetTransport()` calls, a full app relaunch (or
+    /// the host restarting) still mints/sees a genuinely new identity on one
+    /// side or the other — silently resending `.requestToJoin` with this
+    /// cached code (see the `.connected` case in `MCSessionDelegate`)
+    /// re-establishes the host's `playerIDsByPeer` mapping and cancels its
+    /// disconnect grace-period removal in that case, without bouncing the
+    /// player back to the code-entry screen.
     @MainActor private var lastAcceptedJoinCode: String?
     /// The code most recently submitted via `requestToJoin(code:)`, kept
     /// around only until its `.joinResult` reply lands so an acceptance can
@@ -88,32 +88,49 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     @MainActor
     public init(displayName: String = UUID().uuidString, localPlayerID: UUID = PlayerIdentity.current()) {
         self.localPlayerID = localPlayerID
-        self.displayNamePrefix = displayName
         let initialPeerID = MCPeerID(displayName: displayName)
         self.peerID = initialPeerID
         // See the matching comment on `HostConnectivityService` for why
-        // `.none` instead of `.optional`/`.required`.
-        self.mcSession = MCSession(peer: initialPeerID, securityIdentity: nil, encryptionPreference: .none)
+        // `.required` — must match the host's own `encryptionPreference`, or
+        // the two sides fail to negotiate a session at all.
+        self.mcSession = MCSession(peer: initialPeerID, securityIdentity: nil, encryptionPreference: .required)
         self.browser = MCNearbyServiceBrowser(peer: initialPeerID, serviceType: PeerService.type)
         super.init()
         mcSession.delegate = self
         browser.delegate = self
     }
 
-    /// Tears down and rebuilds the peer identity, session, and browser from
-    /// scratch. MultipeerConnectivity sessions can end up in a degraded
-    /// state after a failed or abandoned connection attempt (a stale
-    /// half-connected peer, an invite that timed out, …); starting every
-    /// new browsing attempt on a completely fresh `MCPeerID`/`MCSession`
-    /// avoids compounding that staleness across retries, rather than
-    /// reusing the same session for the lifetime of the app.
+    /// Tears down and rebuilds the peer identity, session, and browser for a
+    /// fresh connection attempt. Mints a **completely new** `MCPeerID` (fresh
+    /// UUID display name) every time rather than reusing one: reusing the
+    /// same display name — even on a new `MCPeerID` instance — was found to
+    /// make the host's Multipeer daemon route the connection to a stale
+    /// Bonjour record, producing `SO_ERROR 60` (Operation timed out) on the
+    /// AWDL interface. The old `browser`/`mcSession` are explicitly
+    /// stopped/disconnected and have their delegates cleared *before* being
+    /// replaced, so a stale, in-flight callback from the discarded objects
+    /// can never land on `self` and be mistaken for one from the new
+    /// session — `session(_:peer:didChange:)` below double-checks this with
+    /// its own `self.mcSession === session` guard. The host's own
+    /// `HostConnectivityService.handle(.requestToJoin:)` cleans up the
+    /// resulting "ghost" session from a player's previous identity once they
+    /// re-register with their new one.
     @MainActor
     private func resetTransport() {
         joinRequestRetryTask?.cancel()
+
+        browser.stopBrowsingForPeers()
+        browser.delegate = nil
+
+        mcSession.delegate = nil
         mcSession.disconnect()
-        let freshPeerID = MCPeerID(displayName: displayNamePrefix)
+
+        let freshPeerID = MCPeerID(displayName: UUID().uuidString)
         peerID = freshPeerID
-        mcSession = MCSession(peer: freshPeerID, securityIdentity: nil, encryptionPreference: .none)
+
+        // See the matching comment on `HostConnectivityService` for why
+        // `.required` — must match the host's own `encryptionPreference`.
+        mcSession = MCSession(peer: freshPeerID, securityIdentity: nil, encryptionPreference: .required)
         browser = MCNearbyServiceBrowser(peer: freshPeerID, serviceType: PeerService.type)
         mcSession.delegate = self
         browser.delegate = self
@@ -333,7 +350,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
         case .sessionState(
             let players, let phase, let minigameFinishOrder, let minigameFirstFinishAt, let penalizedPlayerIDs,
             let turnOrder, let currentTurnIndex, let roomVisitLog,
-            let votingPlayerID, let lastAccusation, let failedAccusationPlayerIDs,
+            let votingPlayerID, let lastAccusation, let failedAccusationPlayerIDs, let votingBanRoundNumbers,
             let roundNumber, let isCurrentRoundBlackout,
             let blackoutTaskStartedAt, let blackoutTaskFinishedPlayerIDs,
             let blackoutMinigame, let blackoutLightTarget, let blackoutLightAverage,
@@ -350,6 +367,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
             self.votingPlayerID = votingPlayerID
             self.lastAccusation = lastAccusation
             self.failedAccusationPlayerIDs = failedAccusationPlayerIDs
+            self.votingBanRoundNumbers = votingBanRoundNumbers
             self.roundNumber = roundNumber
             self.isCurrentRoundBlackout = isCurrentRoundBlackout
             self.blackoutTaskStartedAt = blackoutTaskStartedAt
@@ -376,6 +394,14 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
         case .kicked:
             connectionState = .disconnected
             mcSession.disconnect()
+            // The host is gone for good (an explicit "End Game", not a
+            // transient drop) — clear the join gate too, so rediscovering a
+            // *new* room (a fresh join code) lands this phone straight on
+            // code entry instead of silently resending a now-meaningless
+            // cached code via `resendJoinAfterReconnect()` and flashing a
+            // spurious "ACCESS DENIED".
+            joinAuthorization = .notRequested
+            lastAcceptedJoinCode = nil
 
         case .requestToJoin, .join, .updateProfile, .setReady, .finishMinigame, .skipMinigame, .chooseRoom, .startVoting, .castAccusation, .finishBlackoutTask, .skipBlackoutTask, .updateBlackoutLightValue:
             // Client-authored messages; the host never sends these back.
@@ -387,6 +413,8 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
 extension ClientConnectivityService: MCSessionDelegate {
     public nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor in
+            guard self.mcSession === session else { return }
+            
             // MultipeerConnectivity can sometimes vend different MCPeerID instances 
             // for the same remote peer. Compare display names to be safe.
             guard peerID.displayName == self.hostPeerID?.displayName else { return }
@@ -397,10 +425,11 @@ extension ClientConnectivityService: MCSessionDelegate {
                 // No need to keep searching once we've actually connected —
                 // also avoids the browser piling up stale peer sightings.
                 self.browser.stopBrowsingForPeers()
-                // `resetTransport()` mints a fresh MCPeerID on every attempt,
-                // so a reconnect after a drop looks like a brand-new peer to
-                // the host even though this player was already accepted —
-                // silently re-register instead of waiting on the UI to do it.
+                // Defensive redundancy: `peerID` itself stays stable across
+                // `resetTransport()` calls, but the host's own
+                // `playerIDsByPeer` mapping could still be gone after a
+                // reconnect (e.g. the host restarted) — silently re-register
+                // instead of waiting on the UI to do it.
                 self.resendJoinAfterReconnect()
             case .connecting:
                 self.connectionState = .connecting

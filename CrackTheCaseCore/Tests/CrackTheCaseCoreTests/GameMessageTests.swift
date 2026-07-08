@@ -76,6 +76,7 @@ struct GameMessageTests {
             votingPlayerID: players[0].id,
             lastAccusation: accusation,
             failedAccusationPlayerIDs: [players[0].id],
+            votingBanRoundNumbers: [players[0].id: 3],
             roundNumber: 2,
             isCurrentRoundBlackout: true,
             blackoutTaskStartedAt: blackoutTaskStartedAt,
@@ -91,7 +92,7 @@ struct GameMessageTests {
         guard case .sessionState(
             let decodedPlayers, let decodedPhase, let decodedOrder, let decodedFirstFinishAt, let decodedPenalized,
             let decodedTurnOrder, let decodedTurnIndex, let decodedVisits,
-            let decodedVotingPlayerID, let decodedAccusation, let decodedFailedAccusationPlayerIDs,
+            let decodedVotingPlayerID, let decodedAccusation, let decodedFailedAccusationPlayerIDs, let decodedVotingBanRoundNumbers,
             let decodedRoundNumber, let decodedIsBlackout,
             let decodedBlackoutStartedAt, let decodedBlackoutFinished,
             let decodedBlackoutMinigame, let decodedBlackoutLightTarget, let decodedBlackoutLightAverage,
@@ -111,6 +112,7 @@ struct GameMessageTests {
         #expect(decodedVotingPlayerID == players[0].id)
         #expect(decodedAccusation == accusation)
         #expect(decodedFailedAccusationPlayerIDs == [players[0].id])
+        #expect(decodedVotingBanRoundNumbers == [players[0].id: 3])
         #expect(decodedRoundNumber == 2)
         #expect(decodedIsBlackout)
         #expect(decodedBlackoutStartedAt == blackoutTaskStartedAt)
@@ -206,14 +208,14 @@ struct GameMessageTests {
     @Test("chooseRoom round-trips")
     func chooseRoomRoundTrip() throws {
         let id = UUID()
-        let decoded = try GameMessage.decode(try GameMessage.chooseRoom(id: id, room: .theater).encoded())
+        let decoded = try GameMessage.decode(try GameMessage.chooseRoom(id: id, room: .assemblyHall).encoded())
 
         guard case .chooseRoom(let decodedID, let decodedRoom) = decoded else {
             Issue.record("Expected .chooseRoom, got \(decoded)")
             return
         }
         #expect(decodedID == id)
-        #expect(decodedRoom == .theater)
+        #expect(decodedRoom == .assemblyHall)
     }
 
     @Test("roomFinding round-trips for all three outcomes")

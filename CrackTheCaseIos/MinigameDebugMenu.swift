@@ -144,7 +144,6 @@ private struct MinigameDebugPlayView: View {
         case .tiltAim: TurnTiltAimView(onComplete: markComplete)
         case .buttonMashing: TurnButtonMashingView(onComplete: markComplete)
         case .scratchPin: TurnScratchPinView(onComplete: markComplete)
-        case .keyFitting: TurnKeyFittingView(onComplete: markComplete)
         case .validCardSwipe: TurnValidCardSwipeView(onComplete: markComplete)
         }
     }

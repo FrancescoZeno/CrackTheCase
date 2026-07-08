@@ -64,7 +64,6 @@ extension TurnMinigame {
         case .tiltAim: return "Tilt Aim"
         case .buttonMashing: return "Button Mashing"
         case .scratchPin: return "Scratch PIN"
-        case .keyFitting: return "Key Fitting"
         case .validCardSwipe: return "Valid Card Swipe"
         }
     }
@@ -85,7 +84,6 @@ extension TurnMinigame {
         case .tiltAim: return "Tilt your phone (don't touch the screen) to move the reticle onto the red target for 4 seconds."
         case .buttonMashing: return "Tap both TAP buttons as fast as you can to push the indicator to the top."
         case .scratchPin: return "Rub the panel to reveal the hidden PIN, then type it in on the right."
-        case .keyFitting: return "Drag the two key halves together on the left. They'll reveal a 3-letter code to type in here."
         case .validCardSwipe: return "Swipe right on VALID keys, left on EXPIRED ones — 10 in a row."
         }
     }

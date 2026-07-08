@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which of the 13 turn-order minigames plays during `.minigame`. Re-rolled
+/// Which of the 12 turn-order minigames plays during `.minigame`. Re-rolled
 /// at random every time `GameSession.beginMinigame()` runs, so a different
 /// one can come up each round — unlike `BlackoutMinigame`, which is chosen
 /// once for the whole game.
@@ -29,8 +29,6 @@ public enum TurnMinigame: String, Codable, Sendable, CaseIterable {
     case buttonMashing
     /// Scratch off a digital coating to reveal a 4-digit PIN, then enter it.
     case scratchPin
-    /// Drag two split key halves together to reveal a hidden 3-letter code.
-    case keyFitting
     /// Swipe right on valid cards and left on expired ones, 10 in a row.
     case validCardSwipe
 }
