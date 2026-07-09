@@ -48,15 +48,21 @@ struct ContentView: View {
     /// clue lands on every phone at the same moment (see
     /// `HostConnectivityService`'s batched `.chooseRoom` handling).
     @State private var isAtHome = true
+    @State private var isPlayingPreIntro = true
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if isAtHome {
+            if isPlayingPreIntro {
+                preIntroVideoView
+                    .transition(.opacity)
+            } else if isAtHome {
                 homeScreen
+                    .transition(.opacity)
             } else {
                 gameContent
+                    .transition(.opacity)
             }
         }
         // Attached once here, not inside `homeScreen`/`lobbyView`
@@ -89,6 +95,7 @@ struct ContentView: View {
                 HStack {
                     quitToHomeButton
                     Spacer()
+                    GameClockView(deadline: host.session.gameDeadline)
                 }
                 Spacer()
             }
@@ -100,6 +107,10 @@ struct ContentView: View {
             #if os(tvOS) || os(iOS)
             UIApplication.shared.isIdleTimerDisabled = true
             #endif
+            AudioManager.shared.play(for: host.session.phase)
+        }
+        .onChange(of: host.session.phase) { _, phase in
+            AudioManager.shared.play(for: phase)
         }
         .onChange(of: host.session.canStart) { _, canStart in
             if canStart {
@@ -284,8 +295,8 @@ struct ContentView: View {
             // `LoopingVideoBackground`. Falls back to a plain dark gradient
             // if `intro.mp4` isn't bundled (same fallback contract as
             // `introVideoView`).
-            if Bundle.main.url(forResource: "intro", withExtension: "mp4") != nil {
-                LoopingVideoBackground("intro")
+            if Bundle.main.url(forResource: "intro2", withExtension: "mp4") != nil {
+                LoopingVideoBackground("intro2")
                     .ignoresSafeArea()
             } else {
                 LinearGradient(colors: [.black, .phoenixCard], startPoint: .top, endPoint: .bottom)
@@ -295,7 +306,7 @@ struct ContentView: View {
             // Darkening scrim so the title/buttons stay legible over the
             // video — sits above the video, below every other layer here.
             LinearGradient(
-                colors: [.black.opacity(0.55), .black.opacity(0.75)],
+                colors: [.black.opacity(0.25), .black.opacity(0.50)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -305,7 +316,7 @@ struct ContentView: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 10) {
                         Rectangle().fill(Color.phoenixGold.opacity(0.5)).frame(width: 40, height: 1.5)
-                        Text("CONFIDENTIAL · PHOENIX ACADEMY")
+                        Text("· PHOENIX ACADEMY ·")
                             .font(.system(size: 16, weight: .bold, design: .monospaced))
                             .tracking(4)
                             .foregroundStyle(Color.phoenixMuted)
@@ -345,10 +356,6 @@ struct ContentView: View {
                 }
             }
 
-            // TODO: rain-effect video overlay goes here once that asset
-            // exists — it must sit above the title/buttons `VStack` above
-            // (a higher z-index than the text), unlike `LoopingVideoBackground`
-            // above which sits below everything.
         }
     }
 
@@ -359,20 +366,36 @@ struct ContentView: View {
     /// is deliberate, not incidental — see `PhoenixTVButtonStyle`'s doc
     /// comment on the tvOS focus engine's trouble with non-`.plain` styles.
     private func homeActionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 30, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundStyle(Color.phoenixGold)
-                .padding(.horizontal, 52)
-                .padding(.vertical, 22)
-                .background(Color.phoenixCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.phoenixGold.opacity(0.55), lineWidth: 2)
-                )
+        HomeActionButtonView(title: title, icon: icon, action: action)
+    }
+
+    private struct HomeActionButtonView: View {
+        let title: String
+        let icon: String
+        let action: () -> Void
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            Button(action: action) {
+                Label(title, systemImage: icon)
+                    .font(.system(size: 30, weight: .bold, design: .monospaced))
+                    .tracking(2)
+                    .foregroundStyle(isFocused ? Color.white : Color.phoenixGold)
+                    .padding(.horizontal, 52)
+                    .padding(.vertical, 22)
+                    .background(Color.phoenixCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(isFocused ? Color.phoenixGold : Color.phoenixGold.opacity(0.55), lineWidth: isFocused ? 3 : 2)
+                    )
+                    .scaleEffect(isFocused ? 1.05 : 1.0)
+                    .animation(.easeOut(duration: 0.2), value: isFocused)
+            }
+            .buttonStyle(.plain)
+            #if os(tvOS)
+            .focusEffectDisabled()
+            #endif
         }
-        .buttonStyle(.plain)
     }
 
     private var background: some View {
@@ -457,6 +480,11 @@ struct ContentView: View {
                 .font(.system(size: 18, weight: .bold, design: .monospaced))
                 .tracking(3)
                 .foregroundStyle(Color.phoenixMuted)
+                // Clears `quitToHomeButton`/`lobbyChromeButtons`, both
+                // pinned at `.padding(24)` with a 44pt circle (occupying
+                // roughly y:24-68) — without this the header's first line
+                // starts almost flush against them.
+                .padding(.top, 28)
 
             Label("CRACK THE CASE", systemImage: "magnifyingglass")
                 .font(.system(size: 80, weight: .black, design: .rounded))
@@ -569,11 +597,9 @@ struct ContentView: View {
     private var introVideoView: some View {
         ZStack(alignment: .bottomTrailing) {
             if let url = Bundle.main.url(forResource: "intro", withExtension: "mp4") {
-                VideoPlayer(player: AVPlayer(url: url))
-                    .ignoresSafeArea()
-                    .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
-                        advanceFromIntroVideo()
-                    }
+                AutoplayingVideoView(url: url) {
+                    advanceFromIntroVideo()
+                }
             } else {
                 placeholderStoryView
             }
@@ -590,6 +616,28 @@ struct ContentView: View {
     private func advanceFromIntroVideo() {
         hasSeenOnboarding = true
         host.beginRules()
+    }
+
+    private var preIntroVideoView: some View {
+        ZStack(alignment: .bottomTrailing) {
+            if let url = Bundle.main.url(forResource: "video_pre_intro", withExtension: "mp4") {
+                AutoplayingVideoView(url: url) {
+                    withAnimation { isPlayingPreIntro = false }
+                }
+            } else {
+                Color.black.ignoresSafeArea()
+                    .onAppear {
+                        withAnimation { isPlayingPreIntro = false }
+                    }
+            }
+
+            Button(action: { withAnimation { isPlayingPreIntro = false } }) {
+                Label("Skip", systemImage: "forward.fill")
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+            }
+            .buttonStyle(PhoenixTVButtonStyle(tint: .black.opacity(0.45)))
+            .padding(40)
+        }
     }
 
     private var placeholderStoryView: some View {
@@ -621,12 +669,12 @@ struct ContentView: View {
     }
 
     private var rulesView: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 22) {
             Label("THE RULES", systemImage: "book.closed.fill")
-                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                .font(.system(size: 38, weight: .heavy, design: .rounded))
                 .foregroundStyle(Color.phoenixGold)
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 RuleRow(
                     icon: "hare.fill",
                     text: "Each round, a quick phone challenge decides the turn order. " +
@@ -642,8 +690,18 @@ struct ContentView: View {
                     text: "Use your notebook to track what you've found and rule out suspects."
                 )
                 RuleRow(
+                    icon: "bolt.slash.fill",
+                    text: "Once during the night the storm cuts the power — a Black-out. " +
+                        "Everyone must work together on one emergency task before the lights return."
+                )
+                RuleRow(
                     icon: "hand.point.up.left.fill",
-                    text: "When you think you know who did it, press Vote… but be careful not to get it wrong!"
+                    text: "When you think you know who did it, press Vote… but be careful — " +
+                        "a wrong guess costs your team 5 precious minutes!"
+                )
+                RuleRow(
+                    icon: "timer",
+                    text: "You have 30 minutes before the Ambassador arrives. The clock never stops."
                 )
             }
             .frame(maxWidth: 720)
@@ -768,12 +826,12 @@ struct ContentView: View {
 
                 Text("ROUND \(host.session.roundNumber)")
                     .font(.system(size: 20, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(Color.phoenixMuted)
                     .tracking(2)
 
                 Text(roomSelectionStatusText)
                     .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(.white)
 
                 if !host.session.isRoomSelectionComplete {
                     Text("Only 3 of the 9 rooms hide a clue")
@@ -851,16 +909,16 @@ struct ContentView: View {
     }
 
     private var notebookBoardView: some View {
-        VStack(spacing: 40) {
-            VStack(spacing: 12) {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
                 Text("SUSPECT DATABASE")
-                    .font(.system(size: 46, weight: .black, design: .monospaced))
+                    .font(.system(size: 34, weight: .black, design: .monospaced))
                     .foregroundStyle(Color.phoenixGold)
                     .tracking(4)
 
                 Text("ROUND \(host.session.roundNumber)")
-                    .font(.system(size: 24, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(Color.phoenixMuted)
                     .tracking(2)
             }
 
@@ -885,36 +943,34 @@ struct ContentView: View {
                     .padding()
             }
 
-            // Every suspect shown full-figure, side by side in a single row —
-            // the whole line-up is meant to be scanned at once like a police
-            // line-up, not browsed a few at a time in a grid. Sized to read
-            // as a genuine board on a TV screen, not a small centered strip.
-            HStack(spacing: 26) {
-                ForEach(Suspects.all) { suspect in
-                    VStack(spacing: 0) {
-                        // Full portrait, never cropped — see `SuspectPortraitView`.
-                        SuspectPortraitView(suspect: suspect)
-                            .frame(height: 280)
+            // Sized to fill most of the board — this single image is the
+            // group photo of all 6 suspects, so it needs to read large
+            // enough on a TV screen for their individual details (not just
+            // a thumbnail) to actually be visible from across the room.
+            Image("ImageDatabase")
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 760)
+                .overlay(CCTVScanlines())
+                .overlay(
+                    CornerBrackets(
+                        color: Color.phoenixGold.opacity(0.8),
+                        length: 30,
+                        thickness: 3,
+                        inset: 4
+                    )
+                )
+                .overlay(Rectangle().strokeBorder(Color.phoenixGold.opacity(0.4), lineWidth: 2))
+                .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 10)
+                .padding(.horizontal, 20)
 
-                        Text(suspect.name.uppercased())
-                            .font(.system(size: 25, weight: .black, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .frame(height: 60)
-                            .frame(maxWidth: .infinity)
-                            .background(suspect.color.color.opacity(0.9))
-                    }
-                    .background(Color.black)
-                    .overlay(Rectangle().strokeBorder(suspect.color.color, lineWidth: 3))
-                    .shadow(color: suspect.color.color.opacity(0.3), radius: 10, x: 0, y: 10)
-                }
-            }
-            
             NotebookCountdownView {
                 guard host.session.phase == .notebook else { return }
                 host.beginNextRound()
             }
         }
-        .padding(60)
+        .padding(.horizontal, 40)
+        .padding(.vertical, 24)
     }
 
     /// Auto-advances the board out of `.notebook` after a countdown — but
@@ -1402,11 +1458,11 @@ private struct RuleRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 26))
+                .font(.system(size: 22))
                 .foregroundStyle(Color.phoenixGold)
-                .frame(width: 36)
+                .frame(width: 32)
             Text(text)
-                .font(.system(size: 20, design: .rounded))
+                .font(.system(size: 17, design: .rounded))
                 .foregroundStyle(.white)
         }
     }
@@ -1431,7 +1487,7 @@ private struct RoomTile: View {
             Text("CAM \(String(format: "%02d", cameraNumber)) — \(room.displayName.uppercased())")
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
                 .tracking(1)
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
 
@@ -1514,7 +1570,7 @@ private struct RoomTile: View {
                 .symbolEffect(.pulse)
             Text("REC")
                 .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -1545,12 +1601,14 @@ private struct CCTVScanlines: View {
 
 /// A live, ticking "HH:mm:ss" readout in the corner of a `RoomTile`, like a
 /// real CCTV monitor's on-screen clock — anchored to a fixed evening base
-/// time (21:00+) rather than the device's actual clock. The story takes
+/// time (21:00:00) rather than the device's actual clock. The story takes
 /// place at night, so showing the real device time (which could be broad
 /// daylight, depending on when someone actually plays) would break that
-/// immediately. `seed` (each tile's `cameraNumber`) staggers the base minute/
-/// second per room so the 9 tiles don't all show the exact same clock, while
-/// still ticking forward in real time for the "live feed" effect.
+/// immediately. All 9 tiles share the same base time (a real building's
+/// cameras are all synced to one clock), while still ticking forward in
+/// real time for the "live feed" effect. `seed` is kept as a parameter for
+/// call-site compatibility (`RoomTile` passes `cameraNumber`) but no longer
+/// affects the displayed time.
 private struct CCTVTimestamp: View {
     let seed: Int
 
@@ -1559,8 +1617,8 @@ private struct CCTVTimestamp: View {
     private var baseTime: Date {
         var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         components.hour = 21
-        components.minute = (seed * 11) % 60
-        components.second = (seed * 37) % 60
+        components.minute = 0
+        components.second = 0
         return Calendar.current.date(from: components) ?? Date()
     }
 
@@ -1579,7 +1637,7 @@ private struct CCTVTimestamp: View {
             let elapsed = context.date.timeIntervalSince(startedAt)
             Text(Self.formatter.string(from: baseTime.addingTimeInterval(elapsed)))
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(Color.phoenixMuted)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(.black.opacity(0.5), in: Capsule())
@@ -1643,6 +1701,8 @@ struct SuspectPortraitView: View {
                 placeholder
                     .aspectRatio(3 / 4, contentMode: .fit)
             }
+
+
         }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
@@ -1666,3 +1726,60 @@ struct SuspectPortraitView: View {
 #Preview {
     ContentView()
 }
+
+struct AutoplayingVideoView: View {
+    let url: URL
+    var loops: Bool = false
+    var onVideoEnd: (() -> Void)? = nil
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        PureAVPlayerView(player: player)
+            .allowsHitTesting(false)
+            .focusable(false)
+            .ignoresSafeArea()
+            .onAppear {
+                let p = AVPlayer(url: url)
+                self.player = p
+                p.play()
+            }
+            .onDisappear {
+                player?.pause()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
+                if let item = notification.object as? AVPlayerItem, item == player?.currentItem {
+                    if loops {
+                        player?.seek(to: .zero)
+                        player?.play()
+                    } else {
+                        onVideoEnd?()
+                    }
+                }
+            }
+    }
+}
+
+#if os(tvOS) || os(iOS)
+struct PureAVPlayerView: UIViewRepresentable {
+    let player: AVPlayer?
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = PlayerUIView()
+        view.isUserInteractionEnabled = false
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if let view = uiView as? PlayerUIView {
+            view.playerLayer.player = player
+        }
+    }
+}
+
+class PlayerUIView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+}
+#endif

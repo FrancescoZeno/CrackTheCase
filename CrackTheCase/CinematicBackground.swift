@@ -7,7 +7,19 @@ struct CinematicBackground: View {
     var body: some View {
         ZStack {
             Color(red: 8/255, green: 8/255, blue: 12/255).ignoresSafeArea()
-            
+
+            // Faint, heavily blurred campus backdrop — gives the plain dark
+            // pages (leaderboard, victory/defeat) some texture instead of
+            // flat black. `schoolMap` is the Phoenix Academy campus map
+            // (top-down, centered on the courtyard fountain).
+            Image("schoolMap")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .blur(radius: 60)
+                .opacity(0.22)
+                .saturation(0.6)
+                .ignoresSafeArea()
+
             GeometryReader { geo in
                 ZStack {
                     // Main animated ambient glow

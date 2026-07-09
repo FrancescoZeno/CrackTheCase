@@ -72,10 +72,12 @@ extension ShapeStyle where Self == Color {
     static var phoenixDestructive: Color { .phoenixDestructive }
 }
 
-/// A plain color-filled circle showing a player's avatar emoji — the sober
-/// replacement for the old SF-Symbol animal icons. Reused at every spot a
-/// player's identity is shown; callers add their own stroke/overlay on top
-/// for context (readiness ring, room highlight, etc.).
+/// A color-filled circle showing a player's avatar as a styled SF Symbol —
+/// the same white-glyph-on-colored-circle treatment used for room-finding
+/// badges (see `roomFindingIconColor`/`roomFindingIcon`), rather than a
+/// plain system-font emoji. Reused at every spot a player's identity is
+/// shown; callers add their own stroke/overlay on top for context (readiness
+/// ring, room highlight, etc.).
 struct AvatarBadge: View {
     let avatar: Avatar
     var diameter: CGFloat = 56
@@ -85,8 +87,9 @@ struct AvatarBadge: View {
             .fill(avatar.color)
             .frame(width: diameter, height: diameter)
             .overlay(
-                Text(avatar.emoji)
-                    .font(.system(size: diameter * 0.5))
+                Image(systemName: avatar.symbolName)
+                    .font(.system(size: diameter * 0.42, weight: .bold))
+                    .foregroundStyle(avatar.foreground)
             )
             .accessibilityLabel("\(avatar.displayName) avatar")
     }
@@ -132,6 +135,43 @@ struct EvidenceTraitList: View {
                 }
             }
         }
+    }
+}
+
+/// A live "MM:SS" countdown to the whole game's `gameDeadline` (see
+/// `GameSession`) — the 30 minutes investigators get before the Ambassador
+/// arrives (`LORE.md`). Renders nothing while `deadline` is `nil`, i.e.
+/// before round 1's minigame has actually started the clock (still in
+/// `.lobby`/`.starting`/`.introVideo`/`.rules`).
+struct GameClockView: View {
+    let deadline: Date?
+
+    /// Below this many seconds remaining, the readout turns urgent red
+    /// instead of gold — matches `GameSession.wrongVoteTimePenalty` (5
+    /// minutes), so from here a single further wrong guess could plausibly
+    /// run the clock out entirely.
+    private static let urgentThreshold: TimeInterval = 5 * 60
+
+    var body: some View {
+        if let deadline {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = max(0, deadline.timeIntervalSince(context.date))
+                let isUrgent = remaining <= Self.urgentThreshold
+                Label(Self.format(remaining), systemImage: "timer")
+                    .font(.system(size: 22, weight: .black, design: .monospaced))
+                    .foregroundStyle(isUrgent ? Color.phoenixDestructive : Color.phoenixGold)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.35), in: Capsule())
+                    .overlay(Capsule().strokeBorder((isUrgent ? Color.phoenixDestructive : Color.phoenixGold).opacity(0.5), lineWidth: 1))
+                    .padding(16)
+            }
+        }
+    }
+
+    private static func format(_ interval: TimeInterval) -> String {
+        let total = Int(interval.rounded(.down))
+        return String(format: "%02d:%02d", total / 60, total % 60)
     }
 }
 
@@ -181,6 +221,9 @@ struct SettingsSheet: View {
         .frame(maxWidth: 700, maxHeight: .infinity)
         .background(Color.phoenixBackground.ignoresSafeArea())
         .tint(Color.phoenixGold)
+        .onChange(of: musicEnabled) {
+            AudioManager.shared.refreshMuteState()
+        }
     }
 }
 
@@ -271,15 +314,40 @@ struct CornerBrackets: View {
     }
 }
 
-struct PhoenixTVButtonStyle: ButtonStyle {
+struct PhoenixTVButtonStyle: PrimitiveButtonStyle {
     var tint: Color
     var cornerRadius: CGFloat = 16
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(.white)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 16)
-            .background(tint, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        PhoenixTVButtonView(configuration: configuration, tint: tint, cornerRadius: cornerRadius)
+    }
+}
+
+struct PhoenixTVButtonView: View {
+    let configuration: PrimitiveButtonStyle.Configuration
+    let tint: Color
+    let cornerRadius: CGFloat
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        Button(action: {
+            configuration.trigger()
+        }) {
+            configuration.label
+                .foregroundStyle(.white)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 16)
+                .background(tint, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(isFocused ? Color.white.opacity(0.8) : Color.clear, lineWidth: 3)
+                )
+                .scaleEffect(isFocused ? 1.04 : 1.0)
+                .animation(.easeOut(duration: 0.2), value: isFocused)
+        }
+        .buttonStyle(.plain)
+        #if os(tvOS)
+        .focusEffectDisabled()
+        #endif
     }
 }

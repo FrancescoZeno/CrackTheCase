@@ -50,7 +50,8 @@ public enum GameMessage: Codable, Sendable, Equatable {
 
     /// Broadcast to all clients whenever the session state changes: roster,
     /// phase, turn-order minigame progress, room-exploration turn order, the
-    /// final-accusation vote, or round/black-out progress. Never carries
+    /// final-accusation vote, round/black-out progress, or the game-wide
+    /// countdown deadline (`gameDeadline`). Never carries
     /// clue content, which suspect is actually guilty ahead of time, or the
     /// round on which the black-out will trigger — only which room each
     /// player visited (`roomVisitLog`), the outcome of a vote once resolved
@@ -77,7 +78,8 @@ public enum GameMessage: Codable, Sendable, Equatable {
         blackoutMinigame: BlackoutMinigame,
         blackoutLightTarget: Double,
         blackoutLightAverage: Double,
-        turnMinigame: TurnMinigame
+        turnMinigame: TurnMinigame,
+        gameDeadline: Date?
     )
     /// Broadcast once the host transitions out of the lobby.
     case startGame

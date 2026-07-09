@@ -94,8 +94,22 @@ struct ContentView: View {
                     background
                     content
                 }
-                .overlay(alignment: .topLeading) {
-                    leaveGameButton
+                // A `.safeAreaInset` — not a floating `.overlay` — so this
+                // strip is real, reserved layout space: every phase's own
+                // content (lobby, minigames, room selection, notebook, …)
+                // gets pushed down / shrinks to make room for it, instead
+                // of `leaveGameButton`/`GameClockView` floating on top and
+                // silently covering whatever happens to be there (that was
+                // the actual cause of the Skip button being hidden behind
+                // the clock during minigames, and the lobby's profile card
+                // sitting under the leave button).
+                .safeAreaInset(edge: .top) {
+                    HStack {
+                        leaveGameButton
+                        Spacer()
+                        GameClockView(deadline: client.gameDeadline)
+                            .padding(.trailing, 12)
+                    }
                 }
             }
 
@@ -375,6 +389,15 @@ struct ContentView: View {
         client.phase != .victory && client.phase != .defeat
     }
 
+    /// Fixed footprint of `leaveGameButton` (outer padding + circle
+    /// diameter). `leaveGameButton` and `GameClockView` are laid out
+    /// together in a `.safeAreaInset(edge: .top)` (see `body`), which
+    /// reserves real space above every phase's own content — so, unlike
+    /// before, no individual view needs to know this size or add its own
+    /// top-clearance padding to avoid sitting under them.
+    private static let leaveButtonDiameter: CGFloat = 36
+    private static let leaveButtonOuterPadding: CGFloat = 12
+
     /// Small, unobtrusive corner control so a player is never stuck in a
     /// game (or a stalled connection attempt) with no way out — previously
     /// the only exit was winning or losing. Confirms first since leaving
@@ -387,14 +410,14 @@ struct ContentView: View {
                 showLeaveConfirmation = true
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white.opacity(0.85))
-                    .frame(width: 32, height: 32)
+                    .frame(width: Self.leaveButtonDiameter, height: Self.leaveButtonDiameter)
                     .background(.black.opacity(0.35), in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Leave game")
-            .padding(10)
+            .padding(Self.leaveButtonOuterPadding)
             .confirmationDialog(
                 "Leave this game?",
                 isPresented: $showLeaveConfirmation,
@@ -415,7 +438,17 @@ struct ContentView: View {
         ZStack {
             LinearGradient(colors: [.black, .phoenixCard], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
-            
+
+            // Faint, heavily blurred campus backdrop — same `schoolMap`
+            // asset used by `CinematicBackground`.
+            Image("schoolMap")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .blur(radius: 40)
+                .opacity(0.22)
+                .saturation(0.6)
+                .ignoresSafeArea()
+
             VStack(spacing: 30) {
                 Spacer()
                 
@@ -730,8 +763,9 @@ struct ContentView: View {
                         savedAvatarID = avatar.rawValue
                         syncProfile()
                     } label: {
-                        Text(avatar.emoji)
-                            .font(.system(size: 40))
+                        Image(systemName: avatar.symbolName)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(savedAvatarID == avatar.rawValue ? .black : .white)
                             .frame(width: 60, height: 60)
                             .background(savedAvatarID == avatar.rawValue ? Color.phoenixGold : Color.white.opacity(0.1))
                             .clipShape(Circle())
@@ -1034,10 +1068,7 @@ struct ContentView: View {
                 .foregroundStyle(Color.phoenixGold)
                 .tracking(4)
                 .padding(.horizontal, 20)
-                // Top padding clears the persistent top-leading
-                // `leaveGameButton` overlay, which otherwise sits directly on
-                // top of this title.
-                .padding(.top, 40)
+                .padding(.top, 12)
 
             Text("Only 3 of the 9 rooms hide a clue")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -1062,14 +1093,14 @@ struct ContentView: View {
                                     Image(room.coverAsset)
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
-                                        .frame(width: 200, height: 260)
+                                        .frame(width: 260, height: 170)
                                         .clipped()
                                         .grayscale(isTaken ? 1 : 0)
                                         .opacity(isTaken ? 0.4 : 1)
                                 } else {
                                     Rectangle()
                                         .fill(isTaken ? Color.black.opacity(0.8) : Color.white.opacity(0.05))
-                                        .frame(width: 200, height: 260)
+                                        .frame(width: 260, height: 170)
                                         .overlay {
                                             Image(systemName: room.icon)
                                                 .font(.system(size: 40, weight: .light))
@@ -1082,25 +1113,34 @@ struct ContentView: View {
                                     startPoint: .bottom,
                                     endPoint: .center
                                 )
-                                .frame(width: 200, height: 130)
+                                .frame(width: 260, height: 90)
 
                                 Text(room.displayName.uppercased())
                                     .font(.system(size: 15, weight: .black, design: .monospaced))
                                     .foregroundStyle(isTaken ? Color.gray : .white)
                                     .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.55)
                                     .padding(.horizontal, 8)
-                                    .padding(.bottom, 14)
+                                    .padding(.bottom, 10)
                             }
-                            .frame(width: 200, height: 260)
+                            .frame(width: 260, height: 170)
                             .overlay(Rectangle().strokeBorder(isTaken ? Color.gray.opacity(0.3) : Color.phoenixGold, lineWidth: 2))
                             .overlay {
                                 if isTaken {
                                     Image(systemName: "slash.circle.fill")
-                                        .font(.system(size: 60))
+                                        .font(.system(size: 44))
                                         .foregroundStyle(Color.red.opacity(0.7))
                                 }
                             }
                             .clipShape(Rectangle())
+                            // Explicit hit-testing shape over the full card
+                            // — without it, a composite label (photo +
+                            // gradient + text layered in a ZStack) can leave
+                            // gaps in what SwiftUI treats as "the button",
+                            // which reads as taps not registering until
+                            // several tries.
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(isTaken)
@@ -1111,83 +1151,72 @@ struct ContentView: View {
         }
     }
 
-    /// The room's own "clue scene" photo (`clueAsset`) shown full-screen —
-    /// these photos are shot specifically to be displayed edge-to-edge, each
-    /// with a centered prop (a book, a loose sheet of paper…) meant to hold
-    /// the clue text, so cropping it down to a small banner (the previous
-    /// design) wasted the shot. Falls back to a plain gradient + icon if the
-    /// room is unknown (shouldn't happen in practice — `lastChosenRoom` is
-    /// set right before every `chooseRoom` call) or its clue photo is
-    /// missing, since there's no photo to go full-screen with in that case.
+    /// The room's own "clue scene" photo (`clueAsset`), shown as a fixed,
+    /// contained square rather than the previous edge-to-edge full-bleed
+    /// treatment — a free-floating full-screen photo with text overlaid on
+    /// top read as an inconsistent, "anything goes" layout next to the rest
+    /// of the app's card-based screens. Falls back to no photo (just the
+    /// icon + text below) if the room is unknown (shouldn't happen in
+    /// practice — `lastChosenRoom` is set right before every `chooseRoom`
+    /// call) or its clue photo is missing.
     private func roomFindingView(_ finding: RoomFinding, secondsRemaining: Int) -> some View {
         ZStack {
-            if let room = lastChosenRoom, let uiImage = UIImage(named: room.clueAsset) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .ignoresSafeArea()
-
-                // Scrim behind the text only, not the whole photo — a
-                // radial gradient centered on the screen (where the photo's
-                // own book/paper prop sits) keeps the clue legible without
-                // dimming the rest of the shot.
-                RadialGradient(
-                    colors: [.black.opacity(0.78), .black.opacity(0.2), .clear],
-                    center: .center,
-                    startRadius: 10,
-                    endRadius: 340
-                )
+            LinearGradient(colors: [.black, .phoenixCard], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
-            } else {
-                LinearGradient(colors: [.black, .phoenixCard], startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea()
-            }
 
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
+                if let room = lastChosenRoom, let uiImage = UIImage(named: room.clueAsset) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 200, height: 200)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(roomFindingIconColor(finding).opacity(0.6), lineWidth: 2)
+                        )
+                        .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+                }
+
                 Image(systemName: roomFindingIcon(finding))
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(14)
+                    .padding(12)
                     .background(roomFindingIconColor(finding), in: Circle())
-                    .shadow(color: roomFindingIconColor(finding).opacity(0.6), radius: 12)
+                    .shadow(color: roomFindingIconColor(finding).opacity(0.6), radius: 10)
 
                 switch finding {
                 case .clue(let clue):
                     Text(clue.title)
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: 24, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                     Text(clue.text)
-                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.9))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 case .empty:
                     Text("This area is clear")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: 24, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                     Text("Nothing to see here. Time to move on.")
-                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.8))
                 case .hiddenByPenalty:
                     Text("Visibility compromised")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .font(.system(size: 24, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                     Text("You were too slow in the emergency task. Any clues here are hidden in darkness.")
-                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.8))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 70)
-            .shadow(color: .black.opacity(0.6), radius: 12)
 
-            // Reading-time cooldown, now a small corner badge instead of
-            // the old 120×120 circle — the photo itself is the focus of
-            // this screen now, not a two-column layout.
+            // Reading-time cooldown, a small corner badge.
             VStack {
                 HStack {
                     Spacer()
@@ -1227,73 +1256,88 @@ struct ContentView: View {
     /// horizontally-scrolling suspect grid that takes the rest of the
     /// screen; between the two, everything fits one landscape screen at
     /// once instead of needing an outer vertical `ScrollView`.
+    /// Everything the player needs — the status column and all 6 suspects —
+    /// fits in one glance with no scrolling in either direction. The clue
+    /// count is capped at 2 per player (see `cluesSection`'s "/2" label), so
+    /// the status column's height is bounded and can size to its content
+    /// directly instead of needing a `ScrollView` safety net. The 6 suspect
+    /// cards divide whatever horizontal space is left after that column,
+    /// via `GeometryReader`, instead of scrolling off-screen at a fixed
+    /// width.
     private var notebookView: some View {
-        HStack(alignment: .top, spacing: 20) {
-            VStack(spacing: 12) {
-                // Everything here is variable-height (clue count grows
-                // across the game, room recap/banners come and go) — wrapped
-                // in a `ScrollView` instead of a plain content-sized `VStack`
-                // so that growth scrolls instead of collapsing the old
-                // `Spacer(minLength: 0)` to zero and shoving `voteButton`
-                // below, or off, the visible area.
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("SUSPECT DATABASE")
-                            .font(.system(size: 20, weight: .black, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .tracking(3)
+        GeometryReader { geo in
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Everything here is variable-height (clue count grows
+                    // across the game, room recap/banners come and go) —
+                    // wrapped in its own `ScrollView` instead of sharing a
+                    // `Spacer` with `voteButton` below, so that growth
+                    // scrolls *within this column* instead of pushing the
+                    // vote button past the bottom of the screen (a `VStack`
+                    // doesn't clip or shrink its children to fit a fixed
+                    // frame — it just overflows).
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("SUSPECT DATABASE")
+                                .font(.system(size: 18, weight: .black, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .tracking(3)
 
-                        Text("ROUND \(client.roundNumber)")
-                            .font(.system(size: 13, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.phoenixMuted)
-                            .tracking(2)
+                            Text("ROUND \(client.roundNumber)")
+                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.phoenixMuted)
+                                .tracking(2)
 
-                        Label("Tap a suspect to mark them with an X once the clues rule them out.", systemImage: "xmark.circle")
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .fixedSize(horizontal: false, vertical: true)
+                            Label("Tap a suspect to mark them with an X once the clues rule them out.", systemImage: "xmark.circle")
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .fixedSize(horizontal: false, vertical: true)
 
-                        if let accusation = client.lastAccusation, !accusation.wasCorrect, accusation.playerID == client.localPlayerID {
-                            wrongAccusationBanner(accusation)
-                        }
+                            if let accusation = client.lastAccusation, !accusation.wasCorrect, accusation.playerID == client.localPlayerID {
+                                wrongAccusationBanner(accusation)
+                            }
 
-                        if client.roomVisitLog.contains(where: { $0.playerID == client.localPlayerID }) {
-                            roomVisitRecap
-                        }
+                            if client.roomVisitLog.contains(where: { $0.playerID == client.localPlayerID }) {
+                                roomVisitRecap
+                            }
 
-                        if !collectedClues.isEmpty {
-                            cluesSection
-                        }
+                            if !collectedClues.isEmpty {
+                                cluesSection
+                            }
 
-                        if !client.failedAccusationPlayerIDs.isEmpty {
-                            Label(
-                                "\(client.failedAccusationPlayerIDs.count) failed accusation\(client.failedAccusationPlayerIDs.count == 1 ? "" : "s") this round",
-                                systemImage: "xmark.seal.fill"
-                            )
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.phoenixMuted)
+                            if !client.failedAccusationPlayerIDs.isEmpty {
+                                Label(
+                                    "\(client.failedAccusationPlayerIDs.count) failed accusation\(client.failedAccusationPlayerIDs.count == 1 ? "" : "s") this round",
+                                    systemImage: "xmark.seal.fill"
+                                )
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.phoenixMuted)
+                            }
                         }
                     }
-                }
 
-                // Fixed footer, outside the scroll — always reachable at
-                // the same spot regardless of how much clue/banner content
-                // is above it.
-                if client.isCurrentRoundBlackout {
-                    Text("VOTING OFFLINE - BLACKOUT")
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color.phoenixGold)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    voteButton
+                    // Fixed footer, outside the scroll — always reachable at
+                    // the same spot regardless of how much content is above.
+                    if client.isCurrentRoundBlackout {
+                        Text("VOTING OFFLINE - BLACKOUT")
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Color.phoenixGold)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        voteButton
+                    }
                 }
-            }
-            .frame(width: 200)
-            .padding(.leading, 24)
-            .padding(.vertical, 20)
+                .frame(width: 200, height: geo.size.height - 20)
+                .padding(.leading, 24)
+                .padding(.vertical, 10)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                let spacing: CGFloat = 12
+                let count = CGFloat(Suspects.all.count)
+                let availableWidth = geo.size.width - 200 - 24 - 20 - 24
+                let cardWidth = max(90, (availableWidth - spacing * (count - 1)) / count)
+                let portraitHeight = max(80, min(215, geo.size.height - 20 - 42))
+
+                HStack(spacing: spacing) {
                     ForEach(Suspects.all) { suspect in
                         // Known wrong from a failed accusation of this
                         // suspect — permanently disabled, not just a
@@ -1307,8 +1351,8 @@ struct ContentView: View {
                             borderColor: isKnownInnocent ? .white.opacity(0.3) : (isManuallyExcluded ? .red : suspect.color.color),
                             borderWidth: 2,
                             showXMark: isManuallyExcluded,
-                            width: 170,
-                            portraitHeight: 215,
+                            width: cardWidth,
+                            portraitHeight: portraitHeight,
                             onTap: {
                                 guard !isKnownInnocent else { return }
                                 Haptics.impact(.light)
@@ -1321,7 +1365,8 @@ struct ContentView: View {
                         )
                     }
                 }
-                .padding(.vertical, 20)
+                .frame(maxHeight: .infinity, alignment: .center)
+                .padding(.vertical, 10)
                 .padding(.trailing, 24)
             }
         }
@@ -1511,10 +1556,6 @@ struct ContentView: View {
                 .frame(width: 200)
                 .padding(.leading, 24)
                 .padding(.vertical, 20)
-                // Extra top padding clears the persistent top-leading
-                // `leaveGameButton` overlay, which otherwise sits directly on
-                // top of this title.
-                .padding(.top, 28)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {

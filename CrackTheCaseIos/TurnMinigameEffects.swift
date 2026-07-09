@@ -27,13 +27,13 @@ struct MinigameInstructionText: View {
     var body: some View {
         Label {
             Text(text)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: "info.circle.fill")
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(.phoenixGold)
         }
         .padding(.horizontal, 14)

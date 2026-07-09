@@ -61,6 +61,12 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
     @MainActor public private(set) var blackoutLightAverage: Double = 0
     /// Which of the 13 turn-order minigames is being played this round.
     @MainActor public private(set) var turnMinigame: TurnMinigame = .numberMemory
+    /// The moment the whole game's clock reaches zero, or `nil` before the
+    /// game has actually started — see `GameSession.gameDeadline`. Drives
+    /// the on-screen countdown; each client computes remaining time locally
+    /// against this shared `Date` rather than trusting a synced "seconds
+    /// remaining" counter, which would drift with every rebroadcast delay.
+    @MainActor public private(set) var gameDeadline: Date?
 
     private var peerID: MCPeerID
     private var mcSession: MCSession
@@ -354,7 +360,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
             let roundNumber, let isCurrentRoundBlackout,
             let blackoutTaskStartedAt, let blackoutTaskFinishedPlayerIDs,
             let blackoutMinigame, let blackoutLightTarget, let blackoutLightAverage,
-            let turnMinigame
+            let turnMinigame, let gameDeadline
         ):
             self.players = players
             self.phase = phase
@@ -376,6 +382,7 @@ public final class ClientConnectivityService: NSObject, @unchecked Sendable {
             self.blackoutLightTarget = blackoutLightTarget
             self.blackoutLightAverage = blackoutLightAverage
             self.turnMinigame = turnMinigame
+            self.gameDeadline = gameDeadline
 
         case .startGame:
             phase = .starting

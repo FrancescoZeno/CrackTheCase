@@ -48,6 +48,9 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// task — armed in `beginBlackoutTask()` instead of on first finish,
     /// and its skips carry no penalty (see `GameSession.skipBlackoutTask(id:)`).
     @MainActor private var blackoutDeadlineTask: Task<Void, Never>?
+    /// Armed whenever `session.gameDeadline` is set or moved — see
+    /// `armGameDeadline()`.
+    @MainActor private var gameDeadlineTask: Task<Void, Never>?
 
     /// How long a disconnected player's roster entry survives before being
     /// removed for good, giving a transient drop time to reconnect.
@@ -106,6 +109,8 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
         minigameDeadlineTask = nil
         blackoutDeadlineTask?.cancel()
         blackoutDeadlineTask = nil
+        gameDeadlineTask?.cancel()
+        gameDeadlineTask = nil
     }
 
     /// Starts a brand-new room in place — a fresh join code and an empty
@@ -125,6 +130,12 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     /// app lifetime and only swapping out `session` avoids that entirely.
     @MainActor
     public func startNewGame() {
+        // The old session's `gameDeadline` (and any task sleeping on it) no
+        // longer applies to the fresh session below — `armGameDeadline()`'s
+        // own staleness guard would actually catch this too, but cancelling
+        // outright avoids an unnecessary sleeping `Task` lingering.
+        gameDeadlineTask?.cancel()
+        gameDeadlineTask = nil
         session = GameSession()
         //playerIDsByPeer.removeAll()
         /*
@@ -186,6 +197,10 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
         blackoutDeadlineTask?.cancel()
         blackoutDeadlineTask = nil
         session.beginMinigame()
+        // Round 1 is where `session.beginMinigame()` actually sets
+        // `gameDeadline` for the first time; every later round's call finds
+        // it already set and just re-arms the same deadline (harmless).
+        armGameDeadline()
         broadcastSessionState()
     }
 
@@ -250,6 +265,9 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     @MainActor
     public func playAgain() {
         session.resetToLobby()
+        // `resetToLobby()` clears `gameDeadline` back to nil — drop the old
+        // deadline's task along with it so it can't fire into the new game.
+        armGameDeadline()
         broadcastSessionState()
     }
 
@@ -258,6 +276,7 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
     @MainActor
     public func acknowledgeNotEnoughPlayers() {
         session.resetToLobby()
+        armGameDeadline()
         broadcastSessionState()
     }
 
@@ -372,6 +391,10 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
 
         case .castAccusation(let id, let suspectID):
             session.castAccusation(playerID: id, suspectID: suspectID)
+            // A wrong guess moves `gameDeadline` earlier — re-arm so the
+            // expiry task actually fires at the new, earlier time instead
+            // of the one it was originally scheduled for.
+            armGameDeadline()
             broadcastSessionState()
 
         case .finishBlackoutTask(let id):
@@ -406,6 +429,36 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
             for player in self.session.players where !self.session.minigameFinishOrder.contains(player.id) {
                 self.session.skipMinigame(id: player.id)
             }
+            self.broadcastSessionState()
+        }
+    }
+
+    /// Armed whenever `session.gameDeadline` is set or moved (round 1's
+    /// `beginMinigame()`, and every `.castAccusation` in case it was
+    /// wrong): sleeps until that exact deadline, then — if nothing else
+    /// changed it in the meantime and the game hasn't already ended — ends
+    /// the game via `session.expireGame()` and broadcasts.
+    ///
+    /// Captures the deadline value at arm time and re-checks it against
+    /// `session.gameDeadline` on wake, rather than trusting the sleep alone,
+    /// so a later reschedule (another wrong vote moving it earlier still,
+    /// or a brand new `GameSession` from `startNewGame()`/`resetToLobby()`
+    /// clearing it to `nil`) can't let a stale task end the wrong game. A
+    /// `nil` deadline (game not started yet, or already reset) just cancels
+    /// any outstanding task without arming a new one.
+    @MainActor
+    private func armGameDeadline() {
+        gameDeadlineTask?.cancel()
+        gameDeadlineTask = nil
+        guard let deadline = session.gameDeadline else { return }
+
+        gameDeadlineTask = Task { @MainActor [weak self] in
+            let interval = deadline.timeIntervalSinceNow
+            if interval > 0 {
+                try? await Task.sleep(for: .seconds(interval))
+            }
+            guard let self, !Task.isCancelled, self.session.gameDeadline == deadline else { return }
+            self.session.expireGame()
             self.broadcastSessionState()
         }
     }
@@ -476,7 +529,8 @@ public final class HostConnectivityService: NSObject, @unchecked Sendable {
                 blackoutMinigame: session.blackoutMinigame,
                 blackoutLightTarget: session.blackoutLightTarget,
                 blackoutLightAverage: session.blackoutLightAverage,
-                turnMinigame: session.turnMinigame
+                turnMinigame: session.turnMinigame,
+                gameDeadline: session.gameDeadline
             )
         )
     }

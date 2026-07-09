@@ -14,9 +14,13 @@ public enum GameSettings {
     public static let soundEffectsEnabledKey = "CrackTheCaseCore.soundEffectsEnabled"
     public static let hapticsEnabledKey = "CrackTheCaseCore.hapticsEnabled"
 
-    /// All 3 toggles default to on — sound/music aren't implemented yet, so
-    /// this only has a real effect on `hapticsEnabled` for now (see the
-    /// Black-out task's vibration).
+    /// All 3 toggles default to on. `musicEnabled` gates `AudioManager`,
+    /// which only actually plays on the tvOS target — the shared board is
+    /// the one screen everyone's looking at, so it owns the room's music;
+    /// each phone would otherwise layer its own copy on top and phase out
+    /// of sync. `soundEffectsEnabled` has no sound effects wired to it yet;
+    /// `hapticsEnabled` gates the Black-out task's vibration and is fully
+    /// live today.
     public static func isMusicEnabled(userDefaults: UserDefaults = .standard) -> Bool {
         (userDefaults.object(forKey: musicEnabledKey) as? Bool) ?? true
     }

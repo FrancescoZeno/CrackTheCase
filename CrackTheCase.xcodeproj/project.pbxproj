@@ -9,11 +9,17 @@
 /* Begin PBXBuildFile section */
 		154815417A2F39A079EACE9E /* CrackTheCaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = D8A651CC5C0FDBD84928A3F9 /* CrackTheCaseCore */; };
 		21DFE1A586F984D7B04C714E /* CrackTheCaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9525DC0BE7C89F68E36DE3C1 /* CrackTheCaseCore */; };
+		5056317A34ED879BE2108575 /* gocce.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 531A9D560DF0D0EB008E21EA /* gocce.mp4 */; };
+		7896AF6657DDEC5E15D73EF0 /* video_pre_intro.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 26280FBB9CAFBE4B0D50958F /* video_pre_intro.mp4 */; };
+		DAC8FF81D2D21F3FFF8691FC /* intro2.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = F24A8D0C2D5E1D4BD4617F5F /* intro2.mp4 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		26280FBB9CAFBE4B0D50958F /* video_pre_intro.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = video_pre_intro.mp4; sourceTree = "<group>"; };
 		512A90EE2FF50D0200548ADB /* CrackTheCase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrackTheCase.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		512A91022FF50D2F00548ADB /* CrackTheCaseIos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrackTheCaseIos.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		531A9D560DF0D0EB008E21EA /* gocce.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = gocce.mp4; sourceTree = "<group>"; };
+		F24A8D0C2D5E1D4BD4617F5F /* intro2.mp4 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = intro2.mp4; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -78,6 +84,9 @@
 				512A90F02FF50D0200548ADB /* CrackTheCase */,
 				512A91032FF50D2F00548ADB /* CrackTheCaseIos */,
 				512A90EF2FF50D0200548ADB /* Products */,
+				26280FBB9CAFBE4B0D50958F /* video_pre_intro.mp4 */,
+				531A9D560DF0D0EB008E21EA /* gocce.mp4 */,
+				F24A8D0C2D5E1D4BD4617F5F /* intro2.mp4 */,
 			);
 			sourceTree = "<group>";
 		};
@@ -185,6 +194,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7896AF6657DDEC5E15D73EF0 /* video_pre_intro.mp4 in Resources */,
+				5056317A34ED879BE2108575 /* gocce.mp4 in Resources */,
+				DAC8FF81D2D21F3FFF8691FC /* intro2.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -407,6 +419,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CrackTheCaseIos/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Crack the Case usa la rete locale per collegare il tuo iPhone alla partita sull'Apple TV.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -442,6 +455,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CrackTheCaseIos/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Crack the Case usa la rete locale per collegare il tuo iPhone alla partita sull'Apple TV.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

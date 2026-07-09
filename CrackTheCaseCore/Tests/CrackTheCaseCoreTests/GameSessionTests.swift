@@ -175,6 +175,22 @@ struct GameSessionTests {
         #expect(seen == Set(TurnMinigame.allCases))
     }
 
+    @Test("beginMinigame starts gameDeadline on its first call only")
+    func beginMinigameStartsGameDeadlineOnce() {
+        let session = GameSession()
+        #expect(session.gameDeadline == nil)
+
+        session.beginMinigame()
+        let firstDeadline = session.gameDeadline
+        #expect(firstDeadline != nil)
+        #expect(abs(firstDeadline!.timeIntervalSinceNow - GameSession.totalGameDuration) < 1)
+
+        // Round 2's call (simulated by calling beginMinigame() again) must
+        // leave the original deadline untouched.
+        session.beginMinigame()
+        #expect(session.gameDeadline == firstDeadline)
+    }
+
     @Test("recordMinigameFinish ignores unknown players and duplicates")
     func recordMinigameFinishIgnoresInvalid() {
         let session = GameSession()
@@ -564,6 +580,70 @@ struct GameSessionTests {
         #expect(session.phase == .notebook)
         #expect(session.votingPlayerID == nil)
         #expect(session.lastAccusation == Accusation(playerID: voter, suspectID: wrongSuspect, wasCorrect: false))
+    }
+
+    @Test("a wrong accusation docks 5 minutes off the game deadline")
+    func castAccusationWrongDocksGameDeadline() {
+        let session = GameSession()
+        let voter = UUID()
+        let wrongSuspect = Suspects.all.first { $0.id != session.culpritID }!.id
+        session.beginMinigame() // starts gameDeadline
+        session.phase = .notebook
+        let deadlineBefore = session.gameDeadline!
+        _ = session.startVoting(playerID: voter)
+
+        _ = session.castAccusation(playerID: voter, suspectID: wrongSuspect)
+
+        let deadlineAfter = session.gameDeadline!
+        #expect(abs(deadlineBefore.timeIntervalSince(deadlineAfter) - GameSession.wrongVoteTimePenalty) < 1)
+    }
+
+    @Test("a correct accusation leaves the game deadline untouched")
+    func castAccusationCorrectLeavesGameDeadlineUntouched() {
+        let session = GameSession()
+        let voter = UUID()
+        session.beginMinigame()
+        session.phase = .notebook
+        let deadlineBefore = session.gameDeadline
+        _ = session.startVoting(playerID: voter)
+
+        _ = session.castAccusation(playerID: voter, suspectID: session.culpritID)
+
+        #expect(session.gameDeadline == deadlineBefore)
+    }
+
+    @Test("expireGame ends an in-progress game in defeat")
+    func expireGameEndsInDefeat() {
+        let session = GameSession()
+        session.phase = .notebook
+
+        session.expireGame()
+
+        #expect(session.phase == .defeat)
+    }
+
+    @Test("expireGame is a no-op once the game already ended")
+    func expireGameNoOpAfterGameEnded() {
+        let victorySession = GameSession()
+        victorySession.phase = .victory
+        victorySession.expireGame()
+        #expect(victorySession.phase == .victory)
+
+        let defeatSession = GameSession()
+        defeatSession.phase = .defeat
+        defeatSession.expireGame()
+        #expect(defeatSession.phase == .defeat)
+    }
+
+    @Test("resetToLobby clears gameDeadline")
+    func resetToLobbyClearsGameDeadline() {
+        let session = GameSession()
+        session.beginMinigame()
+        #expect(session.gameDeadline != nil)
+
+        session.resetToLobby()
+
+        #expect(session.gameDeadline == nil)
     }
 
     @Test("a wrong accusation bars the voter from voting again during the following round only")

@@ -72,10 +72,12 @@ extension ShapeStyle where Self == Color {
     static var phoenixDestructive: Color { .phoenixDestructive }
 }
 
-/// A plain color-filled circle showing a player's avatar emoji — the sober
-/// replacement for the old SF-Symbol animal icons. Reused at every spot a
-/// player's identity is shown; callers add their own stroke/overlay on top
-/// for context (readiness ring, room highlight, etc.).
+/// A color-filled circle showing a player's avatar as a styled SF Symbol —
+/// the same white-glyph-on-colored-circle treatment used for room-finding
+/// badges (see `roomFindingIconColor`/`roomFindingIcon`), rather than a
+/// plain system-font emoji. Reused at every spot a player's identity is
+/// shown; callers add their own stroke/overlay on top for context (readiness
+/// ring, room highlight, etc.).
 struct AvatarBadge: View {
     let avatar: Avatar
     var diameter: CGFloat = 56
@@ -85,8 +87,9 @@ struct AvatarBadge: View {
             .fill(avatar.color)
             .frame(width: diameter, height: diameter)
             .overlay(
-                Text(avatar.emoji)
-                    .font(.system(size: diameter * 0.5))
+                Image(systemName: avatar.symbolName)
+                    .font(.system(size: diameter * 0.42, weight: .bold))
+                    .foregroundStyle(avatar.foreground)
             )
             .accessibilityLabel("\(avatar.displayName) avatar")
     }
@@ -101,12 +104,51 @@ struct AvatarBadge: View {
     }
 }
 
+/// A live "MM:SS" countdown to the whole game's `gameDeadline` (see
+/// `GameSession`) — the 30 minutes investigators get before the Ambassador
+/// arrives (`LORE.md`). Renders nothing while `deadline` is `nil`, i.e.
+/// before round 1's minigame has actually started the clock (still in
+/// `.lobby`/`.starting`/`.introVideo`/`.rules`).
+struct GameClockView: View {
+    let deadline: Date?
+
+    /// Below this many seconds remaining, the readout turns urgent red
+    /// instead of gold — matches `GameSession.wrongVoteTimePenalty` (5
+    /// minutes), so from here a single further wrong guess could plausibly
+    /// run the clock out entirely.
+    private static let urgentThreshold: TimeInterval = 5 * 60
+
+    var body: some View {
+        if let deadline {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = max(0, deadline.timeIntervalSince(context.date))
+                let isUrgent = remaining <= Self.urgentThreshold
+                Label(Self.format(remaining), systemImage: "timer")
+                    .font(.system(size: 14, weight: .black, design: .monospaced))
+                    .foregroundStyle(isUrgent ? Color.phoenixDestructive : Color.phoenixGold)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.35), in: Capsule())
+                    .overlay(Capsule().strokeBorder((isUrgent ? Color.phoenixDestructive : Color.phoenixGold).opacity(0.5), lineWidth: 1))
+            }
+        }
+    }
+
+    private static func format(_ interval: TimeInterval) -> String {
+        let total = Int(interval.rounded(.down))
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+}
+
 /// The settings sheet shown on both platforms — toggles for music, sound
 /// effects, and haptics. Music/effects are predisposed for a future audio
 /// pass; only haptics has a real effect today, gating the Black-out task's
 /// vibration.
 struct SettingsSheet: View {
-    @AppStorage(GameSettings.musicEnabledKey) private var musicEnabled = true
+    // No Music toggle here: `AudioManager` only ever plays on the tvOS
+    // target (the shared board owns the room's music — see
+    // `GameSettings.isMusicEnabled`'s doc comment), so a Music toggle on
+    // the phone would control nothing on this device.
     @AppStorage(GameSettings.soundEffectsEnabledKey) private var soundEffectsEnabled = true
     @AppStorage(GameSettings.hapticsEnabledKey) private var hapticsEnabled = true
     @Environment(\.dismiss) private var dismiss
@@ -115,7 +157,6 @@ struct SettingsSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("Music", isOn: $musicEnabled)
                     Toggle("Sound effects", isOn: $soundEffectsEnabled)
                     Toggle("Phone vibration (Black-out)", isOn: $hapticsEnabled)
                 }

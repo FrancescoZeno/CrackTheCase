@@ -64,6 +64,7 @@ struct GameMessageTests {
         let visits = [RoomVisit(playerID: players[1].id, roomID: .library)]
         let accusation = Accusation(playerID: players[0].id, suspectID: "cook", wasCorrect: false)
         let blackoutTaskStartedAt = Date()
+        let gameDeadline = Date().addingTimeInterval(1200)
         let message = GameMessage.sessionState(
             players: players,
             phase: .voting,
@@ -84,7 +85,8 @@ struct GameMessageTests {
             blackoutMinigame: .lightRegulator,
             blackoutLightTarget: 62,
             blackoutLightAverage: 40,
-            turnMinigame: .tiltAim
+            turnMinigame: .tiltAim,
+            gameDeadline: gameDeadline
         )
 
         let decoded = try GameMessage.decode(try message.encoded())
@@ -96,7 +98,7 @@ struct GameMessageTests {
             let decodedRoundNumber, let decodedIsBlackout,
             let decodedBlackoutStartedAt, let decodedBlackoutFinished,
             let decodedBlackoutMinigame, let decodedBlackoutLightTarget, let decodedBlackoutLightAverage,
-            let decodedTurnMinigame
+            let decodedTurnMinigame, let decodedGameDeadline
         ) = decoded else {
             Issue.record("Expected .sessionState, got \(decoded)")
             return
@@ -121,6 +123,7 @@ struct GameMessageTests {
         #expect(decodedBlackoutLightTarget == 62)
         #expect(decodedBlackoutLightAverage == 40)
         #expect(decodedTurnMinigame == .tiltAim)
+        #expect(decodedGameDeadline == gameDeadline)
     }
 
     @Test("updateBlackoutLightValue round-trips")

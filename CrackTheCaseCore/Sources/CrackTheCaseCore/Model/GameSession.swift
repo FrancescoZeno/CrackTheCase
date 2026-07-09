@@ -64,7 +64,7 @@ public final class GameSession {
     /// Players ordered by `minigameScores`, highest first (ties keep each
     /// player's original `players` order, since `sorted(by:)` is stable).
     /// Drives the end-of-game ranking shown alongside the win leaderboard —
-    /// the last player in this list is the one who receives the "PENITENZA"
+    /// the last player in this list is the one who receives the "PENALTY"
     /// badge for the game as a whole.
     public var finalRanking: [Player] {
         players.sorted { (minigameScores[$0.id] ?? 0) > (minigameScores[$1.id] ?? 0) }
@@ -180,6 +180,27 @@ public final class GameSession {
     /// True while the current round is the one designated for the Black-out
     /// event.
     public var isCurrentRoundBlackout: Bool { roundNumber == blackoutRoundNumber }
+
+    /// Total wall-clock time the whole game gets, from the moment round 1's
+    /// minigame begins until the Ambassador arrives (see `LORE.md`). Kept as
+    /// a `TimeInterval` for the same reason as `minigameSkipGracePeriod`:
+    /// both the host's `Task.sleep` and the on-screen countdown's `Date`
+    /// arithmetic need it as a plain interval, not a `Duration`.
+    public static let totalGameDuration: TimeInterval = 30 * 60
+    /// How much time a wrong accusation costs the whole team — subtracted
+    /// straight from `gameDeadline` in `castAccusation(playerID:suspectID:)`.
+    public static let wrongVoteTimePenalty: TimeInterval = 5 * 60
+    /// The moment the game clock reaches zero, or `nil` before the game has
+    /// actually started (still in `.lobby`/`.starting`/`.introVideo`/
+    /// `.rules`). Set once, the first time `beginMinigame()` runs for round
+    /// 1, and left untouched by every later round's `beginMinigame()` call.
+    /// A wrong accusation moves it earlier (see `castAccusation`); nothing
+    /// ever moves it later. This is an absolute deadline rather than a
+    /// remaining-seconds counter so it stays correct no matter how many
+    /// times `HostConnectivityService` rebroadcasts it — each client
+    /// computes its own countdown against this shared `Date` (see
+    /// `HostConnectivityService.armGameDeadline()`).
+    public var gameDeadline: Date?
 
     /// Minimum number of players required before the host can start the game.
     public static let minimumPlayerCount = 2
@@ -300,6 +321,10 @@ public final class GameSession {
 
         culpritID = Suspects.all.randomElement()!.id
         roundClueAssignments = GameSession.generateClues(for: culpritID)
+
+        // Re-armed the next time `beginMinigame()` starts round 1 of the
+        // fresh game — see `gameDeadline`'s doc comment.
+        gameDeadline = nil
     }
 
     /// Picks an avatar for a newly-joining player: one not already used by a
@@ -327,6 +352,13 @@ public final class GameSession {
         minigameFinishOrder = []
         minigameFirstFinishAt = nil
         penalizedPlayerIDs = []
+
+        // Only round 1's call actually starts the clock — every later
+        // round's `beginMinigame()` finds `gameDeadline` already set and
+        // leaves it alone.
+        if gameDeadline == nil {
+            gameDeadline = Date().addingTimeInterval(Self.totalGameDuration)
+        }
 
         var remaining = Set(TurnMinigame.allCases).subtracting(usedTurnMinigames)
         if remaining.isEmpty {
@@ -594,9 +626,11 @@ public final class GameSession {
     /// Resolves the current vote. Ignores accusations from anyone other
     /// than the player who started it. A correct accusation ends the game
     /// (`.victory`); a wrong one returns to `.notebook` with `lastAccusation`
-    /// set so everyone sees the outcome, and bars that player from voting
-    /// again during the *next* round (see `votingBanRoundNumbers`). Returns
-    /// whether the accusation was correct.
+    /// set so everyone sees the outcome, bars that player from voting again
+    /// during the *next* round (see `votingBanRoundNumbers`), and — since
+    /// getting it wrong costs the whole team, not just the voter — docks
+    /// `wrongVoteTimePenalty` off `gameDeadline`. Returns whether the
+    /// accusation was correct.
     @discardableResult
     public func castAccusation(playerID: UUID, suspectID: String) -> Bool {
         guard votingPlayerID == playerID else { return false }
@@ -607,8 +641,21 @@ public final class GameSession {
         if !correct {
             failedAccusationPlayerIDs.insert(playerID)
             votingBanRoundNumbers[playerID] = roundNumber + 1
+            gameDeadline = gameDeadline?.addingTimeInterval(-Self.wrongVoteTimePenalty)
         }
         phase = correct ? .victory : .notebook
         return correct
+    }
+
+    /// Called by the host once `gameDeadline` has passed with the case
+    /// still unsolved — the Ambassador has arrived. Same end state as
+    /// running out of rounds (`beginNextRound()`'s `maxRoundNumber`
+    /// branch), just reached by the wall clock instead of the round
+    /// counter. A no-op if the game already ended, so a delayed/stray call
+    /// can't clobber a `.victory` (or a second `.defeat`) that already
+    /// landed first.
+    public func expireGame() {
+        guard phase != .victory, phase != .defeat else { return }
+        phase = .defeat
     }
 }
