@@ -7,5 +7,7 @@
 		<string>_crackthecase._tcp</string>
 		<string>_crackthecase._udp</string>
 	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
 </dict>
 </plist>

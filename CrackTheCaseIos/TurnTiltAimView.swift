@@ -261,3 +261,8 @@ private final class TiltAimEngine: ObservableObject {
         String(format: "%05.2fs", elapsedTime)
     }
 }
+
+#Preview("Tilt Aim — iPhone landscape", traits: .landscapeRight) {
+    TurnTiltAimView(onComplete: {})
+        .preferredColorScheme(.dark)
+}

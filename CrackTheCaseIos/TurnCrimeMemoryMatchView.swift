@@ -108,7 +108,13 @@ struct TurnCrimeMemoryMatchView: View {
 
                     Spacer()
                 }
-                .padding(.vertical, 20)
+                // More top clearance than bottom — the header otherwise
+                // sat flush against the top edge, exactly where the
+                // shared `SkipCountdownBar` (`ContentView.swift`) inserts
+                // itself once someone finishes, crowding the "EVIDENCE
+                // CORRELATION" title/stopwatch chip.
+                .padding(.top, 36)
+                .padding(.bottom, 20)
             }
         }
         .onAppear {
@@ -248,4 +254,9 @@ private struct MemoryCardFace: View {
         }
         .rotation3DEffect(.degrees(card.isFaceUp ? 180 : 0), axis: (x: 0.0, y: 1.0, z: 0.0))
     }
+}
+
+#Preview("Crime Memory Match — iPhone landscape", traits: .landscapeRight) {
+    TurnCrimeMemoryMatchView(onComplete: {})
+        .preferredColorScheme(.dark)
 }

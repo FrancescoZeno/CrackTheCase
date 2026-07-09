@@ -93,7 +93,16 @@ struct ContentView: View {
             // structure of the (working) home screen buttons, sidesteps it.
             VStack {
                 HStack {
-                    quitToHomeButton
+                    // Hidden on the terminal screens (victory/defeat) and
+                    // notEnoughPlayers — those already have their own way
+                    // forward ("Play Again" / "Back to lobby"), and the
+                    // tvOS focus engine can get stuck on this button with
+                    // no way to navigate off it (see its own doc comment),
+                    // which made those primary buttons unreachable by
+                    // remote. Matches iOS's `showsPersistentLeaveButton`.
+                    if showsQuitButton {
+                        quitToHomeButton
+                    }
                     Spacer()
                     GameClockView(deadline: host.session.gameDeadline)
                 }
@@ -244,6 +253,24 @@ struct ContentView: View {
         .focusScope(defaultFocusNamespace)
     }
 
+    /// False on `.victory`/`.defeat`/`.notEnoughPlayers` — see
+    /// `quitToHomeButton`'s doc comment for why — and also on `.introVideo`/
+    /// `.rules`: the same tvOS focus-engine issue (the remote getting stuck
+    /// on this button with no way to navigate off it) made the "Got it,
+    /// let's start!" button in `rulesView` unreachable right after the
+    /// intro video, on a brand-new Apple TV's very first game. Neither
+    /// onboarding beat needs an emergency way out anyway — `introVideoView`
+    /// already has its own "Skip" button, and both are one-time, seconds-
+    /// long beats, not somewhere a player would get stuck long enough to
+    /// need to quit.
+    private var showsQuitButton: Bool {
+        host.session.phase != .victory
+            && host.session.phase != .defeat
+            && host.session.phase != .notEnoughPlayers
+            && host.session.phase != .introVideo
+            && host.session.phase != .rules
+    }
+
     /// Reachable from every connected phase, not just the lobby — the TV is
     /// the shared board, so this is the only way to bail out of a stuck or
     /// unwanted game without force-quitting the app. Sits top-leading so it
@@ -269,7 +296,7 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Quit game")
-        .padding(24)
+        .padding(40)
     }
 
     private var quitConfirmationDialog: some View {
@@ -430,7 +457,7 @@ struct ContentView: View {
                 }
                 Spacer()
             }
-            .padding(24)
+            .padding(40)
         }
         // On-demand rules review — automatic once per Apple TV via
         // `introVideoView`/`rulesView`, but never reachable again after
@@ -481,10 +508,11 @@ struct ContentView: View {
                 .tracking(3)
                 .foregroundStyle(Color.phoenixMuted)
                 // Clears `quitToHomeButton`/`lobbyChromeButtons`, both
-                // pinned at `.padding(24)` with a 44pt circle (occupying
-                // roughly y:24-68) — without this the header's first line
-                // starts almost flush against them.
-                .padding(.top, 28)
+                // pinned at `.padding(40)` with a 44pt circle (occupying
+                // roughly y:40-84, with 40pt as genuine edge/overscan
+                // margin) — without this the header's first line starts
+                // almost flush against them.
+                .padding(.top, 44)
 
             Label("CRACK THE CASE", systemImage: "magnifyingglass")
                 .font(.system(size: 80, weight: .black, design: .rounded))

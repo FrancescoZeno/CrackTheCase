@@ -20,40 +20,40 @@ struct TurnNumberMemoryView: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 20) {
-                VStack(spacing: 15) {
+                VStack(spacing: 10) {
                     Text("Memory Numbers")
-                        .font(.system(size: 24, weight: .black, design: .rounded))
+                        .font(.system(size: 22, weight: .black, design: .rounded))
                         .foregroundStyle(.phoenixGold)
 
                     MinigameInstructionText(text: "Memorize the 5 numbers, then type them back in the same order.")
 
-                    Spacer()
+                    Spacer(minLength: 4)
 
                     VStack {
                         if isShowingSequence {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 ForEach(targetSequence, id: \.self) { num in
                                     Text("\(num)")
-                                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                                        .font(.system(size: 26, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white)
-                                        .frame(width: 40, height: 50)
+                                        .frame(width: 34, height: 44)
                                         .background(Color.phoenixGold.opacity(0.2))
                                         .cornerRadius(8)
                                 }
                             }
                             .transition(.opacity)
                         } else if isGameActive {
-                            VStack(spacing: 5) {
+                            VStack(spacing: 4) {
                                 Text("Enter the sequence:")
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                                     .foregroundStyle(.phoenixMuted)
 
-                                HStack(spacing: 10) {
+                                HStack(spacing: 8) {
                                     ForEach(0..<sequenceLength, id: \.self) { index in
                                         Text(index < userSequence.count ? "\(userSequence[index])" : "_")
-                                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                                            .font(.system(size: 26, weight: .bold, design: .rounded))
                                             .foregroundStyle(.white)
-                                            .frame(width: 40, height: 50)
+                                            .frame(width: 34, height: 44)
                                             .background(Color.white.opacity(0.08))
                                             .cornerRadius(8)
                                     }
@@ -61,15 +61,15 @@ struct TurnNumberMemoryView: View {
                             }
                         } else {
                             Text(feedbackMessage)
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
                                 .foregroundStyle(feedbackColor)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
                     }
-                    .frame(height: 90)
+                    .frame(height: 64)
 
-                    Spacer()
+                    Spacer(minLength: 4)
 
                     if !isGameActive && !hasWon {
                         Button(action: startGame) {
@@ -96,7 +96,8 @@ struct TurnNumberMemoryView: View {
                 }
                 .frame(width: geometry.size.width * 0.5)
             }
-            .padding()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
         .background(Color.phoenixBackground)
     }
@@ -198,4 +199,16 @@ private struct NumberMemoryKeyboard: View {
     private func textColor(for label: String) -> Color {
         label == "Clear" ? .phoenixDestructive : .white
     }
+}
+
+// Landscape preview — this minigame (and every other one) is only ever
+// shown in landscape on a real phone; forcing that orientation here is
+// what actually catches "content overflows the bottom on a small iPhone"
+// bugs like the START button being cut off, straight in Xcode's Canvas,
+// without launching the simulator or playing through a real game to reach
+// this screen. Reuses the same "just pass a no-op closure" pattern as
+// `MinigameDebugMenu.swift`'s `MinigameDebugPlayView` — no live host needed.
+#Preview("Number Memory — iPhone landscape", traits: .landscapeRight) {
+    TurnNumberMemoryView(onComplete: {})
+        .preferredColorScheme(.dark)
 }

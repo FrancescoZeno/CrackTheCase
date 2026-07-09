@@ -15,8 +15,8 @@ struct CinematicBackground: View {
             Image("schoolMap")
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .blur(radius: 40)
-                .opacity(0.22)
+                .blur(radius: 22)
+                .opacity(0.38)
                 .saturation(0.6)
                 .ignoresSafeArea()
 

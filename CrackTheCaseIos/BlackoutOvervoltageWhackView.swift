@@ -24,69 +24,77 @@ struct BlackoutOvervoltageWhackView: View {
         ZStack {
             Color.phoenixBackground.ignoresSafeArea()
 
-            VStack(spacing: 20) {
+            // Wrapped in a `ScrollView` — this content (title + instructions
+            // + stats + progress bar + a 2×5 spark grid) was a rigid
+            // `VStack` with no `Spacer`s and no scroll safety net, the same
+            // risk class `TurnNumberMemoryView` had before its fix: once
+            // the shared Skip bar (`ContentView.swift`) eats into the
+            // available landscape height, there was nothing to keep it
+            // from overflowing past the screen edges.
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
                     Text("SHORT CIRCUIT PANEL")
-                .font(.system(size: 22, weight: .black, design: .rounded))
-                .foregroundStyle(.phoenixGold)
-                .tracking(1)
+                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .foregroundStyle(.phoenixGold)
+                        .tracking(1)
 
-            MinigameInstructionText(text: "Tap each spark as soon as it lights up, before it fades away.")
-                .padding(.horizontal, 30)
+                    MinigameInstructionText(text: "Tap each spark as soon as it lights up, before it fades away.")
+                        .padding(.horizontal, 30)
 
-            HStack(spacing: 24) {
-                VStack(spacing: 4) {
-                    Text("SPARKS CLEARED")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.phoenixMuted)
-                    Text("\(sparksCleared) / \(totalSparksRequired)")
-                        .font(.system(size: 24, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.phoenixGreen)
-                }
-                VStack(spacing: 4) {
-                    Text("TIME LEFT")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.phoenixMuted)
-                    Text(String(format: "%.1fs", timeRemaining))
-                        .font(.system(size: 24, weight: .bold, design: .monospaced))
-                        .foregroundStyle(timeRemaining < 5 ? .phoenixDestructive : .phoenixGold)
-                }
-            }
-
-            ProgressView(value: Double(sparksCleared), total: Double(totalSparksRequired))
-                .tint(.phoenixGreen)
-                .padding(.horizontal, 30)
-
-            LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(0..<10, id: \.self) { index in
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.phoenixCard)
-                            .frame(height: 70)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                            )
-
-                        if activeSparkIndex == index {
-                            Button {
-                                handleSparkTap()
-                            } label: {
-                                Image(systemName: "bolt.fill")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 40, height: 40)
-                                    .foregroundStyle(.phoenixGold)
-                                    .shadow(color: .phoenixGold, radius: 8)
-                            }
-                            .buttonStyle(.plain)
+                    HStack(spacing: 24) {
+                        VStack(spacing: 4) {
+                            Text("SPARKS CLEARED")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.phoenixMuted)
+                            Text("\(sparksCleared) / \(totalSparksRequired)")
+                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.phoenixGreen)
+                        }
+                        VStack(spacing: 4) {
+                            Text("TIME LEFT")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.phoenixMuted)
+                            Text(String(format: "%.1fs", timeRemaining))
+                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                .foregroundStyle(timeRemaining < 5 ? .phoenixDestructive : .phoenixGold)
                         }
                     }
-                }
-            }
-            .padding(.horizontal, 20)
 
+                    ProgressView(value: Double(sparksCleared), total: Double(totalSparksRequired))
+                        .tint(.phoenixGreen)
+                        .padding(.horizontal, 30)
+
+                    LazyVGrid(columns: columns, spacing: 14) {
+                        ForEach(0..<10, id: \.self) { index in
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.phoenixCard)
+                                    .frame(height: 70)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                    )
+
+                                if activeSparkIndex == index {
+                                    Button {
+                                        handleSparkTap()
+                                    } label: {
+                                        Image(systemName: "bolt.fill")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 40, height: 40)
+                                            .foregroundStyle(.phoenixGold)
+                                            .shadow(color: .phoenixGold, radius: 8)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.vertical, 10)
             }
-            .padding(.vertical, 10)
         }
         .overlay {
             if showWhiteFlash {
@@ -203,4 +211,9 @@ struct BlackoutOvervoltageWhackView: View {
         gameTimer = nil
         sparkTimer = nil
     }
+}
+
+#Preview("Overvoltage Whack — iPhone landscape", traits: .landscapeRight) {
+    BlackoutOvervoltageWhackView(onComplete: {})
+        .preferredColorScheme(.dark)
 }

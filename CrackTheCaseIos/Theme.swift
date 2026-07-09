@@ -104,42 +104,6 @@ struct AvatarBadge: View {
     }
 }
 
-/// A live "MM:SS" countdown to the whole game's `gameDeadline` (see
-/// `GameSession`) — the 30 minutes investigators get before the Ambassador
-/// arrives (`LORE.md`). Renders nothing while `deadline` is `nil`, i.e.
-/// before round 1's minigame has actually started the clock (still in
-/// `.lobby`/`.starting`/`.introVideo`/`.rules`).
-struct GameClockView: View {
-    let deadline: Date?
-
-    /// Below this many seconds remaining, the readout turns urgent red
-    /// instead of gold — matches `GameSession.wrongVoteTimePenalty` (5
-    /// minutes), so from here a single further wrong guess could plausibly
-    /// run the clock out entirely.
-    private static let urgentThreshold: TimeInterval = 5 * 60
-
-    var body: some View {
-        if let deadline {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let remaining = max(0, deadline.timeIntervalSince(context.date))
-                let isUrgent = remaining <= Self.urgentThreshold
-                Label(Self.format(remaining), systemImage: "timer")
-                    .font(.system(size: 14, weight: .black, design: .monospaced))
-                    .foregroundStyle(isUrgent ? Color.phoenixDestructive : Color.phoenixGold)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.black.opacity(0.35), in: Capsule())
-                    .overlay(Capsule().strokeBorder((isUrgent ? Color.phoenixDestructive : Color.phoenixGold).opacity(0.5), lineWidth: 1))
-            }
-        }
-    }
-
-    private static func format(_ interval: TimeInterval) -> String {
-        let total = Int(interval.rounded(.down))
-        return String(format: "%02d:%02d", total / 60, total % 60)
-    }
-}
-
 /// The settings sheet shown on both platforms — toggles for music, sound
 /// effects, and haptics. Music/effects are predisposed for a future audio
 /// pass; only haptics has a real effect today, gating the Black-out task's
@@ -189,6 +153,34 @@ extension View {
             )
             .shadow(color: .black.opacity(0.35), radius: 14, x: 0, y: 8)
             .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+    }
+}
+
+/// The shared "big icon on the left, content on the right" frame used by
+/// every simple status-style screen (connecting, waiting for a turn,
+/// locked for a vote, victory, defeat, …) — landscape-friendly and avoids
+/// repeating the same `HStack` skeleton in each one. Not nested inside
+/// `ContentView` — used by standalone extracted views (`VictoryView`,
+/// `DefeatView`) as well as `ContentView` itself, so it needs to be
+/// reachable from any file in the target.
+struct LandscapeStatusView<Content: View>: View {
+    let icon: String
+    var iconColor: Color = .phoenixGold
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 36) {
+            Image(systemName: icon)
+                .font(.system(size: 64))
+                .foregroundStyle(iconColor)
+                .frame(maxWidth: .infinity)
+
+            VStack(alignment: .leading, spacing: 14) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 50)
     }
 }
 

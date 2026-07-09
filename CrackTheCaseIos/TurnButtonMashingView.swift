@@ -95,7 +95,13 @@ struct TurnButtonMashingView: View {
                     .disabled(engine.phase != .playing)
             }
         }
-        .edgesIgnoringSafeArea(.all)
+        // No longer `.edgesIgnoringSafeArea(.all)` here — that let this
+        // view's TAP buttons/timer extend into the space the shared
+        // `SkipCountdownBar` (`ContentView.swift`) reserves via
+        // `.safeAreaInset(edge: .top)` on the parent, so the bar ended up
+        // floating on top of these controls instead of pushing them down.
+        // The two full-bleed overlays below (`.starting`/`.finished`) keep
+        // their own explicit `.ignoresSafeArea()` and don't need this.
         .onAppear {
             engine.startSetup()
             engine.onWin = onComplete
