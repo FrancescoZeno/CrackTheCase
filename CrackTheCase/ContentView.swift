@@ -777,7 +777,7 @@ struct ContentView: View {
     private var minigameView: some View {
         VStack(spacing: 32) {
             VStack(spacing: 8) {
-                Label("WHO WILL BE FASTEST?", systemImage: "magnifyingglass")
+                Label("WHO WILL BE FASTER?", systemImage: "magnifyingglass")
                     .font(.system(size: 44, weight: .heavy, design: .rounded))
                     .foregroundStyle(Color.phoenixGold)
 
@@ -1105,56 +1105,107 @@ struct ContentView: View {
     /// focused element into view natively, no extra code needed.
     private var victoryView: some View {
         ScrollView {
-            VStack(spacing: 28) {
+            VStack(spacing: 18) {
                 Image(systemName: "trophy.fill")
-                    .font(.system(size: 88))
+                    .font(.system(size: 64))
                     .foregroundStyle(Color.phoenixGold)
 
                 Text("CASE SOLVED!")
-                    .font(.system(size: 52, weight: .heavy, design: .rounded))
+                    .font(.system(size: 44, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
 
                 if let accusation = host.session.lastAccusation, let winner = player(for: accusation.playerID) {
                     Text("\(winner.nickname) exposed the culprit and wins the scholarship!")
-                        .font(.system(size: 24, weight: .medium, design: .rounded))
+                        .font(.system(size: 22, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.9))
                         .multilineTextAlignment(.center)
                 }
 
                 if let culprit = suspect(for: host.session.culpritID) {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 6) {
                         SuspectPortraitView(suspect: culprit)
-                            .frame(height: 140)
+                            .frame(height: 100)
                         Text("The culprit was \(culprit.name)")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundStyle(Color.phoenixGold)
                         Text(culprit.role)
-                            .font(.system(size: 16, design: .rounded))
+                            .font(.system(size: 15, design: .rounded))
                             .foregroundStyle(.white.opacity(0.75))
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 6)
                 }
 
                 if !leaderboardEntries.isEmpty {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 6) {
                         Label("LEADERBOARD", systemImage: "medal.fill")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.6))
 
-                        VStack(spacing: 6) {
+                        VStack(spacing: 4) {
                             ForEach(Array(leaderboardEntries.enumerated()), id: \.offset) { _, entry in
                                 HStack(spacing: 10) {
                                     Text(entry.name)
-                                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                        .font(.system(size: 15, weight: .semibold, design: .rounded))
                                         .foregroundStyle(.white)
                                     Spacer()
                                     Text(entry.wins == 1 ? "1 win" : "\(entry.wins) wins")
-                                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                                        .font(.system(size: 13, weight: .medium, design: .rounded))
                                         .foregroundStyle(Color.phoenixGold)
                                 }
                                 .frame(maxWidth: 260)
                             }
                         }
+                    }
+                    .padding(.top, 4)
+                }
+
+                finalRankingSection
+
+                Button {
+                    host.playAgain()
+                } label: {
+                    Label("Play Again", systemImage: "arrow.counterclockwise.circle.fill")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                }
+                .buttonStyle(PhoenixTVButtonStyle(tint: .phoenixGreen))
+                .padding(.top, 6)
+                // The one thing on this screen that should reliably have
+                // focus the instant it appears — see `defaultFocusNamespace`.
+                .prefersDefaultFocus(true, in: defaultFocusNamespace)
+            }
+            .padding(40)
+        }
+    }
+
+    /// Wrapped in a `ScrollView` for the same reason as `victoryView` — see
+    /// its doc comment.
+    private var defeatView: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Image(systemName: "hourglass.tophalf.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(Color.phoenixDestructive)
+
+                Text("CASE UNSOLVED")
+                    .font(.system(size: 44, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text("\(GameSession.maxRoundNumber) rounds have passed and nobody named the real culprit. Everyone loses.")
+                    .font(.system(size: 22, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 60)
+
+                if let culprit = suspect(for: host.session.culpritID) {
+                    VStack(spacing: 6) {
+                        SuspectPortraitView(suspect: culprit)
+                            .frame(height: 100)
+                        Text("The culprit was \(culprit.name)")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.phoenixGold)
+                        Text(culprit.role)
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.75))
                     }
                     .padding(.top, 6)
                 }
@@ -1168,61 +1219,10 @@ struct ContentView: View {
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                 }
                 .buttonStyle(PhoenixTVButtonStyle(tint: .phoenixGreen))
-                .padding(.top, 10)
-                // The one thing on this screen that should reliably have
-                // focus the instant it appears — see `defaultFocusNamespace`.
+                .padding(.top, 6)
                 .prefersDefaultFocus(true, in: defaultFocusNamespace)
             }
-            .padding(60)
-        }
-    }
-
-    /// Wrapped in a `ScrollView` for the same reason as `victoryView` — see
-    /// its doc comment.
-    private var defeatView: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                Image(systemName: "hourglass.tophalf.fill")
-                    .font(.system(size: 88))
-                    .foregroundStyle(Color.phoenixDestructive)
-
-                Text("CASE UNSOLVED")
-                    .font(.system(size: 52, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Text("\(GameSession.maxRoundNumber) rounds have passed and nobody named the real culprit. Everyone loses.")
-                    .font(.system(size: 22, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 60)
-
-                if let culprit = suspect(for: host.session.culpritID) {
-                    VStack(spacing: 10) {
-                        SuspectPortraitView(suspect: culprit)
-                            .frame(height: 140)
-                        Text("The culprit was \(culprit.name)")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color.phoenixGold)
-                        Text(culprit.role)
-                            .font(.system(size: 16, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
-                    .padding(.top, 10)
-                }
-
-                finalRankingSection
-
-                Button {
-                    host.playAgain()
-                } label: {
-                    Label("Play Again", systemImage: "arrow.counterclockwise.circle.fill")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                }
-                .buttonStyle(PhoenixTVButtonStyle(tint: .phoenixGreen))
-                .padding(.top, 10)
-                .prefersDefaultFocus(true, in: defaultFocusNamespace)
-            }
-            .padding(60)
+            .padding(40)
         }
     }
 
@@ -1235,23 +1235,24 @@ struct ContentView: View {
     private var finalRankingSection: some View {
         let ranking = host.session.finalRanking
         if ranking.count > 1 {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Label("FINAL RANKING", systemImage: "list.number")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.6))
 
-                VStack(spacing: 10) {
+                VStack(spacing: 6) {
                     ForEach(Array(ranking.enumerated()), id: \.element.id) { index, player in
                         LeaderboardRow(
                             rank: index + 1,
                             player: player,
-                            isPenalized: player.id == ranking.last?.id
+                            isPenalized: player.id == ranking.last?.id,
+                            compact: true
                         )
                     }
                 }
                 .frame(maxWidth: 640)
             }
-            .padding(.top, 6)
+            .padding(.top, 4)
         }
     }
 
@@ -1439,34 +1440,40 @@ private struct LeaderboardRow: View {
     let rank: Int
     let player: Player
     let isPenalized: Bool
+    /// Shrinks avatar/fonts/padding for the stacked end-of-game lists
+    /// (`finalRankingSection`), where two of these can appear back to back
+    /// under the culprit reveal — at full size that pushes "Play Again" off
+    /// screen with 4+ players. The per-round minigame results screen keeps
+    /// the default full size.
+    var compact: Bool = false
 
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: compact ? 12 : 20) {
             Text("\(rank)")
-                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .font(.system(size: compact ? 20 : 28, weight: .heavy, design: .rounded))
                 .foregroundStyle(rank == 1 ? Color.phoenixGold : .white.opacity(0.6))
-                .frame(width: 44)
+                .frame(width: compact ? 32 : 44)
 
-            AvatarBadge(player: player, diameter: 56)
+            AvatarBadge(player: player, diameter: compact ? 40 : 56)
 
             Text(player.nickname)
-                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .font(.system(size: compact ? 18 : 24, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
 
             Spacer()
 
             if isPenalized {
                 Label("PENALTY", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .font(.system(size: compact ? 13 : 15, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, compact ? 10 : 14)
+                    .padding(.vertical, compact ? 6 : 8)
                     .background(Color.phoenixDestructive, in: Capsule())
                     .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1))
                     .shadow(color: .phoenixDestructive.opacity(0.5), radius: 8, y: 2)
             }
         }
-        .padding(16)
+        .padding(compact ? 10 : 16)
         .background(Color.phoenixCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)

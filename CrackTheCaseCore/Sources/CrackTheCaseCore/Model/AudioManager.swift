@@ -36,6 +36,18 @@ public final class AudioManager {
         case victory
         case defeat
         case blackout
+
+        /// Whether this track should loop forever (background music) or
+        /// play through once and stop (a one-shot stinger for a terminal
+        /// screen). `.victory`/`.defeat` only ever play once — looping them
+        /// made the jingle repeat for as long as players lingered on the
+        /// end screen, which read as broken rather than celebratory.
+        var loopsForever: Bool {
+            switch self {
+            case .mainGame, .blackout: return true
+            case .victory, .defeat: return false
+            }
+        }
     }
 
     private var player: AVAudioPlayer?
@@ -73,7 +85,7 @@ public final class AudioManager {
         }
         do {
             let newPlayer = try AVAudioPlayer(contentsOf: url)
-            newPlayer.numberOfLoops = -1
+            newPlayer.numberOfLoops = track.loopsForever ? -1 : 0
             newPlayer.volume = 0.5
             newPlayer.prepareToPlay()
             newPlayer.play()
