@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
-/// A silent, gapless-looping video meant to sit *behind* other content (the
+/// A quiet, gapless-looping video meant to sit *behind* other content (the
 /// home screen's cinematic backdrop) — unlike `introVideoView`'s
 /// `VideoPlayer`, this has no playback chrome, controls, or one-shot
 /// "advance on finish" behavior. Built on `AVQueuePlayer` + `AVPlayerLooper`
@@ -27,7 +27,7 @@ struct LoopingVideoBackground: UIViewRepresentable {
 
         let item = AVPlayerItem(url: url)
         let queuePlayer = AVQueuePlayer()
-        queuePlayer.isMuted = true
+        queuePlayer.volume = 0.2
         context.coordinator.looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
 
         view.playerLayer.player = queuePlayer
